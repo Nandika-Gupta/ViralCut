@@ -10,6 +10,7 @@ export default function Home() {
           <a className="brand" href="#top"><Logo /> ViralCut</a>
           <nav className="nav-links" aria-label="Main">
             <a href="#features">Features</a>
+            <a href="#projects">My projects</a>
             <a href="#how">How it works</a>
             <a href="#faq">FAQ</a>
           </nav>

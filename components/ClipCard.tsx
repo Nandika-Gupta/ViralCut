@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PLATFORM_ICONS } from "./icons";
+import { ConfirmButton } from "./Projects";
 import { formatTime } from "@/lib/transcript";
 import { PLATFORM_LABELS, type ClipPlan, type Platform } from "@/lib/types";
 
@@ -17,18 +18,34 @@ type Props = {
   onCopy: (text: string) => void;
   onPublish: (platform: Platform) => void;
   onCreate: () => void;
+  onUpdate: (clip: ClipPlan) => void;
+  onDelete: () => void;
   postedUrl?: string;
   fileName: string;
 };
 
 const SHARE_NAMES: Record<Platform, string> = { instagram: "Instagram", youtube: "YouTube", x: "X", linkedin: "LinkedIn", facebook: "Facebook" };
 
+const tagText = (clip: ClipPlan) => Object.fromEntries(Object.entries(clip.hashtags).map(([k, v]) => [k, (v ?? []).join(" ")])) as Record<string, string>;
+
 const PUBLISH: Platform[] = ["youtube", "instagram", "facebook", "x", "linkedin"];
 
 const scoreClass = (s: number) => (s >= 85 ? "hot" : s >= 70 ? "good" : "ok");
 
-export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onPublish, onCreate, postedUrl, fileName }: Props) {
+export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onPublish, onCreate, onUpdate, onDelete, postedUrl, fileName }: Props) {
   const [platform, setPlatform] = useState<Platform>(platforms[0]);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ title: clip.title, hook: clip.hook, posts: { ...clip.posts }, tags: tagText(clip) });
+  useEffect(() => {
+    if (!editing) setDraft({ title: clip.title, hook: clip.hook, posts: { ...clip.posts }, tags: tagText(clip) });
+  }, [clip, editing]);
+  const saveEdit = () => {
+    const hashtags = Object.fromEntries(
+      Object.entries(draft.tags).map(([k, v]) => [k, v.split(/[\s,]+/).filter(Boolean).map((t) => "#" + t.replace(/^#+/, ""))]),
+    );
+    onUpdate({ ...clip, title: draft.title.trim() || clip.title, hook: draft.hook.trim(), posts: draft.posts, hashtags });
+    setEditing(false);
+  };
   const [playing, setPlaying] = useState(false);
   const text = clip.posts[platform] ?? "";
   const tags = clip.hashtags[platform] ?? [];
@@ -87,28 +104,64 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
         </div>
       </div>
       <div className="clip-body">
-        <h3>#{index + 1} {clip.title}</h3>
-        {clip.hook && <span className="hook-tag">{clip.hook}</span>}
-        {clip.why && <p className="why">{clip.why}</p>}
-        {clip.quote && <blockquote>“{clip.quote.replace(/^["“]|["”]$/g, "")}”</blockquote>}
-        <div className="tabs" role="tablist">
-          {platforms.map((p) => {
-            const Icon = PLATFORM_ICONS[p];
-            return (
-              <button key={p} type="button" role="tab" className="tab" aria-selected={p === platform} onClick={() => setPlatform(p)}>
-                <Icon size={14} /> {PLATFORM_LABELS[p]}
-              </button>
-            );
-          })}
-        </div>
-        <div className="post-box">
-          <p className="post-text">{text || "No post written for this platform."}</p>
-          {tags.length > 0 && <div className="tags">{tags.map((t) => <span key={t}>{t}</span>)}</div>}
-          <div className="row">
-            <button type="button" className="btn small" onClick={() => onCopy(full)}>Copy post + hashtags</button>
-            <button type="button" className="btn small ghost" onClick={() => onCopy(tags.join(" "))}>Copy hashtags</button>
+        {editing ? (
+          <div className="edit-box">
+            <label htmlFor={`t-${index}`}>Title</label>
+            <input id={`t-${index}`} className="field" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+            <label htmlFor={`h-${index}`}>On-screen hook (first 3 seconds)</label>
+            <input id={`h-${index}`} className="field" value={draft.hook} maxLength={80} onChange={(e) => setDraft({ ...draft, hook: e.target.value })} />
+            <div className="tabs" role="tablist">
+              {platforms.map((p) => {
+                const Icon = PLATFORM_ICONS[p];
+                return (
+                  <button key={p} type="button" role="tab" className="tab" aria-selected={p === platform} onClick={() => setPlatform(p)}>
+                    <Icon size={14} /> {PLATFORM_LABELS[p]}
+                  </button>
+                );
+              })}
+            </div>
+            <label htmlFor={`p-${index}`}>{PLATFORM_LABELS[platform]} post</label>
+            <textarea id={`p-${index}`} className="field" rows={4} style={{ fontFamily: "var(--sans)" }} value={draft.posts[platform] ?? ""}
+              onChange={(e) => setDraft({ ...draft, posts: { ...draft.posts, [platform]: e.target.value } })} />
+            <label htmlFor={`g-${index}`}>{PLATFORM_LABELS[platform]} hashtags (separate with spaces)</label>
+            <input id={`g-${index}`} className="field" value={draft.tags[platform] ?? ""} onChange={(e) => setDraft({ ...draft, tags: { ...draft.tags, [platform]: e.target.value } })} />
+            <div className="row" style={{ marginTop: 6 }}>
+              <button type="button" className="btn small primary" onClick={saveEdit}>Save changes</button>
+              <button type="button" className="btn small ghost" onClick={() => setEditing(false)}>Cancel</button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="clip-title-row">
+              <h3>#{index + 1} {clip.title}</h3>
+              <div className="row">
+                <button type="button" className="btn small ghost" onClick={() => setEditing(true)} aria-label="Edit clip">✏️ Edit</button>
+                <ConfirmButton label="🗑" confirmLabel="Delete clip?" onConfirm={onDelete} />
+              </div>
+            </div>
+            {clip.hook && <span className="hook-tag">{clip.hook}</span>}
+            {clip.why && <p className="why">{clip.why}</p>}
+            {clip.quote && <blockquote>“{clip.quote.replace(/^["“]|["”]$/g, "")}”</blockquote>}
+            <div className="tabs" role="tablist">
+              {platforms.map((p) => {
+                const Icon = PLATFORM_ICONS[p];
+                return (
+                  <button key={p} type="button" role="tab" className="tab" aria-selected={p === platform} onClick={() => setPlatform(p)}>
+                    <Icon size={14} /> {PLATFORM_LABELS[p]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="post-box">
+              <p className="post-text">{text || "No post written for this platform."}</p>
+              {tags.length > 0 && <div className="tags">{tags.map((t) => <span key={t}>{t}</span>)}</div>}
+              <div className="row">
+                <button type="button" className="btn small" onClick={() => onCopy(full)}>Copy post + hashtags</button>
+                <button type="button" className="btn small ghost" onClick={() => onCopy(tags.join(" "))}>Copy hashtags</button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
       <div className="clip-foot">
         {rendered ? (

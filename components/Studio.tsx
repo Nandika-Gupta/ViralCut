@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ClipCard, { type RenderState } from "./ClipCard";
+import ProjectsPanel, { ProjectTitle } from "./Projects";
 import { Drive, Dropbox, Kick, Loom, PLATFORM_ICONS, Twitch, Upload, YouTube } from "./icons";
 import { offlineCopy, offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
@@ -37,7 +38,7 @@ const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|ogv)(\?|$)/i;
 
 type Config = { ai: boolean; model: string; accessCode: boolean; googleClientId?: string };
 type Source = { kind: "youtube"; url: string; videoId: string } | { kind: "file"; name: string };
-type Project = {
+export type Project = {
   id: string; created: number; title: string; summary: string; duration: number; engine: string; transcriptSource: string;
   source: Source; platforms: Platform[]; plan: Plan; sentences: Sentence[];
 };
@@ -243,6 +244,42 @@ function videoDuration(url: string): Promise<{ duration: number; width: number; 
   });
 }
 
+/* ---------------- saved projects ---------------- */
+
+const PROJECTS_KEY = "viralcut-projects";
+const MAX_PROJECTS = 30;
+type StoredProject = Omit<Project, "sentences"> & { lines?: [number, number, string][] };
+
+/** Sentences are stored without word timings (re-estimated on load) so many projects fit in browser storage. */
+function packProject(p: Project): StoredProject {
+  const { sentences, ...rest } = p;
+  const r = (n: number) => Math.round(n * 100) / 100;
+  return { ...rest, lines: sentences.map((x) => [r(x.start), r(x.end), x.text]) };
+}
+
+function unpackProject(sp: StoredProject & { sentences?: Sentence[] }): Project {
+  const lines = sp.lines ?? [];
+  const sentences = lines.length
+    ? lines.map(([a, b, t]) => ({ text: t, start: a, end: b, words: spreadWords(t, a, b) }))
+    : (sp.sentences ?? []);
+  const { lines: _drop, ...rest } = sp;
+  void _drop;
+  return { ...rest, sentences } as Project;
+}
+
+function saveProjects(list: Project[]) {
+  const packed = list.slice(0, MAX_PROJECTS).map(packProject);
+  for (let keepTranscripts = packed.length; keepTranscripts >= 0; keepTranscripts--) {
+    try {
+      // If storage is full, older projects drop their transcripts first (their clips, posts and hashtags stay).
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(packed.map((p, i) => (i < keepTranscripts ? p : { ...p, lines: [] }))));
+      return;
+    } catch {
+      /* quota exceeded: try again with fewer transcripts */
+    }
+  }
+}
+
 /* ---------------- component ---------------- */
 
 export default function Studio() {
@@ -283,7 +320,10 @@ export default function Studio() {
     saved.platforms = valid(saved.platforms).length ? valid(saved.platforms) : DEFAULTS.platforms;
     setS(saved);
     // Older projects may list platforms that were removed (e.g. TikTok).
-    setHistory(store.get<Project[]>("viralcut-projects", []).map((h) => ({ ...h, platforms: valid(h.platforms).length ? valid(h.platforms) : DEFAULTS.platforms })));
+    setHistory(store.get<StoredProject[]>(PROJECTS_KEY, []).map((h) => {
+      const p = unpackProject(h);
+      return { ...p, platforms: valid(p.platforms).length ? valid(p.platforms) : DEFAULTS.platforms };
+    }));
   }, []);
   useEffect(() => store.set("viralcut-settings", s), [s]);
 
@@ -468,10 +508,7 @@ export default function Studio() {
         id: Date.now().toString(36), created: Date.now(), title: plan.title || title, summary: plan.summary, duration,
         engine: plan.engine, transcriptSource, source, platforms: settings.platforms, plan, sentences,
       };
-      setProject(proj);
-      const nextHistory = [{ ...proj, sentences: [] }, ...history.filter((h) => h.id !== proj.id)].slice(0, 8);
-      setHistory(nextHistory);
-      store.set("viralcut-projects", nextHistory);
+      upsertProject(proj);
 
       // 4. render
       if (source.kind === "file") {
@@ -552,9 +589,78 @@ export default function Studio() {
     setStatus("");
   }
 
+  /** Save a new or changed project: it becomes the open project and is stored in this browser. */
+  function upsertProject(p: Project) {
+    setProject(p);
+    setHistory((prev) => {
+      const next = prev.some((h) => h.id === p.id) ? prev.map((h) => (h.id === p.id ? p : h)) : [p, ...prev];
+      saveProjects(next);
+      return next;
+    });
+  }
+
+  function deleteProject(id: string) {
+    setHistory((prev) => {
+      const next = prev.filter((h) => h.id !== id);
+      saveProjects(next);
+      return next;
+    });
+    if (project?.id === id) {
+      setProject(null);
+      setRenders({});
+      setPosted({});
+      setPhase("idle");
+    }
+    notify("Project deleted");
+  }
+
+  function deleteAllProjects() {
+    setHistory([]);
+    saveProjects([]);
+    setProject(null);
+    setRenders({});
+    setPosted({});
+    setPhase("idle");
+    notify("All projects deleted");
+  }
+
+  function renameProject(id: string, title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    const target = history.find((h) => h.id === id) ?? (project?.id === id ? project : null);
+    if (!target) return;
+    const renamed = { ...target, title: clean, plan: { ...target.plan, title: clean } };
+    if (project?.id === id) upsertProject(renamed);
+    else
+      setHistory((prev) => {
+        const next = prev.map((h) => (h.id === id ? renamed : h));
+        saveProjects(next);
+        return next;
+      });
+  }
+
+  function updateClip(index: number, clip: ClipPlan) {
+    if (!project) return;
+    const clips = project.plan.clips.map((c, i) => (i === index ? clip : c));
+    upsertProject({ ...project, plan: { ...project.plan, clips } });
+    notify("Clip saved");
+  }
+
+  function deleteClip(index: number) {
+    if (!project) return;
+    const clips = project.plan.clips.filter((_, i) => i !== index);
+    const shift = <T,>(m: Record<number, T>) =>
+      Object.fromEntries(Object.entries(m).filter(([k]) => Number(k) !== index).map(([k, v]) => [Number(k) > index ? Number(k) - 1 : Number(k), v]));
+    setRenders((r) => shift(r));
+    setPosted((r) => shift(r));
+    upsertProject({ ...project, plan: { ...project.plan, clips } });
+    notify("Clip deleted");
+  }
+
   function openProject(p: Project) {
     setProject(p);
     setRenders({});
+    setPosted({});
     setPhase("done");
     window.setTimeout(() => studioRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
@@ -865,7 +971,7 @@ export default function Studio() {
               <div className="results-head">
                 <div>
                   <span className="eyebrow">{plan.clips.length} viral shorts</span>
-                  <h2>{project.title}</h2>
+                  <ProjectTitle title={project.title} onRename={(t) => renameProject(project.id, t)} onDelete={() => deleteProject(project.id)} />
                   <p>{plan.summary}</p>
                   {plan.notice && <p className="notice">⚠️ {plan.notice}</p>}
                   <p className="fineprint">{formatTime(project.duration)} video · {project.engine} · transcript: {project.transcriptSource}</p>
@@ -907,7 +1013,7 @@ export default function Studio() {
               <div className="clips">
                 {plan.clips.map((c, i) => (
                   <ClipCard key={`${project.id}-${i}`} index={i} clip={c} platforms={project.platforms} videoId={videoId}
-                    render={renders[i]} onCopy={copy} onPublish={(p) => publish(p, i)} onCreate={() => createShort(i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
+                    render={renders[i]} onCopy={copy} onPublish={(p) => publish(p, i)} onCreate={() => createShort(i)} onUpdate={(c) => updateClip(i, c)} onDelete={() => deleteClip(i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
                 ))}
               </div>
 
@@ -948,17 +1054,15 @@ export default function Studio() {
             </div>
           )}
 
-          {phase === "idle" && !project && history.length > 0 && (
-            <div className="panel">
-              <h3>Recent projects</h3>
-              <div className="row">
-                {history.map((h) => (
-                  <button key={h.id} type="button" className="btn small" onClick={() => openProject(h)}>
-                    {h.title.slice(0, 40)} · {h.plan.clips.length} clips
-                  </button>
-                ))}
-              </div>
-            </div>
+          {history.length > 0 && (
+            <ProjectsPanel
+              projects={history}
+              openId={project?.id}
+              onOpen={openProject}
+              onRename={renameProject}
+              onDelete={deleteProject}
+              onDeleteAll={deleteAllProjects}
+            />
           )}
         </div>
       </section>
