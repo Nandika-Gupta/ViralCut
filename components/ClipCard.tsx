@@ -15,24 +15,26 @@ type Props = {
   videoId?: string;
   render?: RenderState;
   onCopy: (text: string) => void;
-  onSchedule: (clip: ClipPlan, platform: Platform) => void;
-  onPostYouTube: () => void;
-  onShare: (platform: Platform) => void;
+  onPublish: (platform: Platform) => void;
+  onCreate: () => void;
   postedUrl?: string;
   fileName: string;
 };
 
 const SHARE_NAMES: Record<Platform, string> = { instagram: "Instagram", youtube: "YouTube", x: "X", linkedin: "LinkedIn", facebook: "Facebook" };
 
+const PUBLISH: Platform[] = ["youtube", "instagram", "facebook", "x", "linkedin"];
+
 const scoreClass = (s: number) => (s >= 85 ? "hot" : s >= 70 ? "good" : "ok");
 
-export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onSchedule, onPostYouTube, onShare, postedUrl, fileName }: Props) {
+export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onPublish, onCreate, postedUrl, fileName }: Props) {
   const [platform, setPlatform] = useState<Platform>(platforms[0]);
   const [playing, setPlaying] = useState(false);
   const text = clip.posts[platform] ?? "";
   const tags = clip.hashtags[platform] ?? [];
   const full = `${text}\n\n${tags.join(" ")}`.trim();
   const duration = Math.round(clip.end - clip.start);
+  const rendered = render?.status === "done" && Boolean(render.url);
 
   let screen;
   if (render?.status === "done" && render.url) {
@@ -70,6 +72,20 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
         <span className="dur">{duration}s · {formatTime(clip.start)}</span>
         {screen}
       </div>
+      <div className="publish">
+        <span className="publish-label">Publish this short</span>
+        <div className="publish-grid">
+          {PUBLISH.filter((p) => p !== "linkedin" || platforms.includes("linkedin")).map((p) => {
+            const Icon = PLATFORM_ICONS[p];
+            const done = p === "youtube" && postedUrl;
+            return done ? (
+              <a key={p} className={`pub pub-${p}`} href={postedUrl} target="_blank" rel="noopener noreferrer"><Icon size={18} /> Posted ✓</a>
+            ) : (
+              <button key={p} type="button" className={`pub pub-${p}`} onClick={() => onPublish(p)}><Icon size={18} /> {SHARE_NAMES[p]}</button>
+            );
+          })}
+        </div>
+      </div>
       <div className="clip-body">
         <h3>#{index + 1} {clip.title}</h3>
         {clip.hook && <span className="hook-tag">{clip.hook}</span>}
@@ -95,37 +111,17 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
         </div>
       </div>
       <div className="clip-foot">
-        {render?.status === "done" && render.url ? (
-          <a className="btn" href={render.url} download={`${fileName}.${render.ext}`}>⬇ Download</a>
-        ) : videoId ? (
-          <a className="btn" href={`https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(clip.start)}s`} target="_blank" rel="noopener noreferrer">▶ Open on YouTube</a>
+        {rendered ? (
+          <a className="btn" href={render!.url} download={`${fileName}.${render!.ext}`}>⬇ Download MP4</a>
         ) : (
-          <button className="btn" type="button" disabled>⬇ Download</button>
+          <button className="btn" type="button" onClick={onCreate} disabled={render?.status === "rendering" || render?.status === "queued"}>
+            {render?.status === "rendering" ? "Creating…" : render?.status === "queued" ? "Queued…" : "🎬 Create short"}
+          </button>
         )}
-        <button className="btn primary" type="button" onClick={() => onSchedule(clip, platform)}>🗓 Schedule</button>
+        {videoId && (
+          <a className="btn ghost" href={`https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(clip.start)}s`} target="_blank" rel="noopener noreferrer">▶ Watch moment</a>
+        )}
       </div>
-      {render?.status === "done" && render.url && (
-        <div className="clip-foot">
-          {postedUrl ? (
-            <a className="btn yt-btn" href={postedUrl} target="_blank" rel="noopener noreferrer">✓ Posted · View on YouTube</a>
-          ) : (
-            <button className="btn yt-btn" type="button" onClick={onPostYouTube}>▶ Post to YouTube Shorts</button>
-          )}
-        </div>
-      )}
-      {render?.status === "done" && render.url && (
-        <div className="share-row">
-          <span>Post to</span>
-          {(["instagram", "facebook", "x", "linkedin"] as Platform[]).map((p) => {
-            const Icon = PLATFORM_ICONS[p];
-            return (
-              <button key={p} type="button" className="share-btn" title={`Post to ${SHARE_NAMES[p]}`} aria-label={`Post to ${SHARE_NAMES[p]}`} onClick={() => onShare(p)}>
-                <Icon size={22} />
-              </button>
-            );
-          })}
-        </div>
-      )}
     </article>
   );
 }

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { findMoments, hashtagsFor, hookStrength, offlinePlan } from "../lib/analysis.ts";
-import { buildIcs, nextBestTime } from "../lib/ics.ts";
 import { pickTask, postsTask } from "../lib/planner.ts";
 import { parseTranscript, snapToSentences, transcriptText, wordsBetween } from "../lib/transcript.ts";
 import { youtubeId } from "../lib/youtube.ts";
@@ -102,14 +101,6 @@ test("youtube link parsing", () => {
   assert.equal(youtubeId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=x"), "dQw4w9WgXcQ");
   assert.equal(youtubeId("https://youtube.com/shorts/abcDEF12345"), "abcDEF12345");
   assert.equal(youtubeId("https://vimeo.com/1"), null);
-});
-
-test("calendar export and best times", () => {
-  const ics = buildIcs([{ id: "1", clipTitle: "A, b", platform: "Instagram", time: "2026-11-01T13:30:00.000Z", caption: "Hi\nthere" }]);
-  assert.match(ics, /DTSTART:20261101T133000Z/);
-  assert.match(ics, /SUMMARY:Post on Instagram: A\\, b/);
-  const t = nextBestTime("instagram", new Date(2026, 9, 25, 12));
-  assert.ok([1, 3, 5].includes(t.getDay()) && t.getHours() === 11);
 });
 
 test("extracts JSON from fenced or chatty model answers", async () => {

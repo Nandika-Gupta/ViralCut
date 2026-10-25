@@ -2,7 +2,7 @@
 
 **Turn one long video into viral shorts automatically.** Paste a YouTube link or upload a video. ViralCut finds the best
 moments, adds captions, reframes them to 9:16 around the speaker's face, and writes ready-to-post captions and hashtags
-for YouTube Shorts, Instagram Reels, Facebook, X and LinkedIn. You can also plan when each one goes out.
+for YouTube Shorts, Instagram Reels, Facebook, X and LinkedIn. Publish buttons send each short to YouTube, Instagram, Facebook and X.
 
 ## Features
 
@@ -16,7 +16,6 @@ for YouTube Shorts, Instagram Reels, Facebook, X and LinkedIn. You can also plan
 | **Posts & hashtags** | Platform-native posts and hashtags for every clip, an X thread, LinkedIn and Instagram posts for the full video, and a hashtag bank. |
 | **Post to YouTube** | One click uploads a finished short to your YouTube channel (YouTube Data API, sign in with Google). Needs `GOOGLE_CLIENT_ID`. |
 | **Post to Instagram, Facebook, X, LinkedIn** | On phones, the share sheet opens with the video attached. On computers, the video downloads, the caption is copied, and the platform's upload page opens (X and LinkedIn with the caption pre-filled). |
-| **Scheduling** | Plan each short at the platform's peak time and export the schedule to your calendar (`.ics`). |
 
 ## Deploy on Vercel
 

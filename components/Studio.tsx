@@ -6,7 +6,6 @@ import ClipCard, { type RenderState } from "./ClipCard";
 import { Drive, Dropbox, Kick, Loom, PLATFORM_ICONS, Twitch, Upload, YouTube } from "./icons";
 import { offlineCopy, offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
-import { buildIcs, nextBestTime, type ScheduledPost } from "@/lib/ics";
 import { getYouTubeToken, shortsTitle, uploadToYouTube, type YouTubeMeta } from "@/lib/youtubeUpload";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
 import { extractJson } from "@/lib/json";
@@ -32,6 +31,7 @@ const SPOKEN_LANGS: [string, string][] = [
   ["", "Detect automatically"], ["english", "English"], ["hindi", "Hindi"], ["spanish", "Spanish"], ["portuguese", "Portuguese"],
   ["french", "French"], ["german", "German"], ["arabic", "Arabic"], ["urdu", "Urdu"], ["bengali", "Bengali"],
 ];
+const PLATFORM_NAMES: Record<Platform, string> = { youtube: "YouTube", instagram: "Instagram", facebook: "Facebook", x: "X", linkedin: "LinkedIn" };
 const STEP_NAMES = ["Import", "Transcribe", "Find viral moments", "Write posts", "Render shorts"] as const;
 const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|ogv)(\?|$)/i;
 
@@ -260,11 +260,9 @@ export default function Studio() {
   const [error, setError] = useState<{ message: string; askTranscript?: boolean } | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [renders, setRenders] = useState<Record<number, RenderState>>({});
-  const [schedule, setSchedule] = useState<ScheduledPost[]>([]);
   const [history, setHistory] = useState<Project[]>([]);
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState("");
-  const [sched, setSched] = useState<{ clip: ClipPlan; platform: Platform; time: string; caption: string } | null>(null);
   const [ytPost, setYtPost] = useState<{ index: number; meta: YouTubeMeta; schedule: string; phase: "edit" | "uploading" | "done" | "error"; progress: number; message: string } | null>(null);
   const [posted, setPosted] = useState<Record<number, string>>({});
   const ytDialog = useRef<HTMLDialogElement>(null);
@@ -274,7 +272,7 @@ export default function Studio() {
   const fileUrl = useRef<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const exportInput = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const createInput = useRef<HTMLInputElement>(null);
   const studioRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -288,9 +286,6 @@ export default function Studio() {
     setHistory(store.get<Project[]>("viralcut-projects", []).map((h) => ({ ...h, platforms: valid(h.platforms).length ? valid(h.platforms) : DEFAULTS.platforms })));
   }, []);
   useEffect(() => store.set("viralcut-settings", s), [s]);
-  useEffect(() => {
-    if (project) store.set(`viralcut-schedule-${project.id}`, schedule);
-  }, [schedule, project]);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -474,7 +469,6 @@ export default function Studio() {
         engine: plan.engine, transcriptSource, source, platforms: settings.platforms, plan, sentences,
       };
       setProject(proj);
-      setSchedule([]);
       const nextHistory = [{ ...proj, sentences: [] }, ...history.filter((h) => h.id !== proj.id)].slice(0, 8);
       setHistory(nextHistory);
       store.set("viralcut-projects", nextHistory);
@@ -532,16 +526,19 @@ export default function Studio() {
     }
   }
 
-  async function exportWithFile(f: File) {
+  async function exportWithFile(f: File | null) {
     if (!project) return;
     const ctl = new AbortController();
     abortRef.current = ctl;
-    setSourceVideo(f);
+    if (f) setSourceVideo(f);
     setPhase("working");
     setStep(4);
     setError(null);
     try {
       await renderAll(project, s, ctl.signal);
+      const pending = pendingPublish.current;
+      pendingPublish.current = null;
+      if (pending) notify(`Shorts ready! Click ${PLATFORM_NAMES[pending.platform]} again to publish clip #${pending.index + 1}.`);
     } catch (err) {
       setError({ message: (err as Error).message });
     }
@@ -558,7 +555,6 @@ export default function Studio() {
   function openProject(p: Project) {
     setProject(p);
     setRenders({});
-    setSchedule(store.get<ScheduledPost[]>(`viralcut-schedule-${p.id}`, []));
     setPhase("done");
     window.setTimeout(() => studioRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
@@ -599,13 +595,20 @@ export default function Studio() {
   // Facebook, Instagram and X only allow direct API posting for apps they have reviewed (X's API is paid),
   // so: phones get the share sheet with the video attached; computers get the file, the caption on the clipboard,
   // and the platform's upload page (X and LinkedIn with the caption pre-filled).
+  function captionFor(clip: ClipPlan, platform: Platform): string {
+    const first = project!.platforms[0];
+    const text = clip.posts[platform] || clip.posts.youtube || clip.posts[first] || clip.title;
+    const tags = clip.hashtags[platform]?.length ? clip.hashtags[platform]! : clip.hashtags[first] ?? [];
+    return `${text}\n\n${tags.join(" ")}`.trim();
+  }
+
   async function shareTo(platform: Platform, index: number) {
     const clip = project!.plan.clips[index];
     const r = renders[index];
     if (!r?.url) return;
-    const caption = `${clip.posts[platform] ?? clip.posts[project!.platforms[0]] ?? clip.title}\n\n${(clip.hashtags[platform] ?? clip.hashtags[project!.platforms[0]] ?? []).join(" ")}`.trim();
+    const caption = captionFor(clip, platform);
     const fileName = `viralcut-${index + 1}-${slug(clip.title)}.${r.ext}`;
-    const name = PLATFORM_LABELS[platform] === "Reels" ? "Instagram" : PLATFORM_LABELS[platform] === "Shorts" ? "YouTube" : PLATFORM_LABELS[platform];
+    const name = PLATFORM_NAMES[platform];
     const phone = window.matchMedia("(pointer: coarse)").matches;
     const enc = encodeURIComponent(caption);
     const pages: Record<Platform, string> = {
@@ -613,7 +616,7 @@ export default function Studio() {
       facebook: "https://www.facebook.com/reels/create",
       x: `https://x.com/intent/post?text=${enc}`,
       linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${enc}`,
-      youtube: "https://studio.youtube.com/",
+      youtube: "https://www.youtube.com/upload",
     };
     // Open the tab right away (before any await) so the browser doesn't block it as a pop-up.
     const tab = phone ? null : window.open(pages[platform], "_blank");
@@ -647,28 +650,52 @@ export default function Studio() {
     );
   }
 
-  /* ---- scheduling ---- */
-  function openSchedule(clip: ClipPlan, platform: Platform) {
-    const t = nextBestTime(platform);
-    const local = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    setSched({ clip, platform, time: local, caption: `${clip.posts[platform] ?? ""}\n\n${(clip.hashtags[platform] ?? []).join(" ")}`.trim() });
-    window.setTimeout(() => dialogRef.current?.showModal(), 0);
+  /* ---- publish buttons ---- */
+  const pendingPublish = useRef<{ platform: Platform; index: number } | null>(null);
+
+  /** The big Publish buttons. X, Facebook and LinkedIn work right away with a link to the moment; YouTube and Instagram need the short's video. */
+  function publish(platform: Platform, index: number) {
+    if (!project) return;
+    const clip = project.plan.clips[index];
+    const r = renders[index];
+    if (r?.status === "done" && r.url) {
+      if (platform === "youtube" && config?.googleClientId) return openYouTubePost(index);
+      return void shareTo(platform, index);
+    }
+    const vid = project.source.kind === "youtube" ? project.source.videoId : "";
+    const momentLink = vid ? `https://youtu.be/${vid}?t=${Math.floor(clip.start)}` : "";
+    if (momentLink && (platform === "x" || platform === "facebook" || platform === "linkedin")) {
+      const caption = captionFor(clip, platform);
+      const enc = encodeURIComponent;
+      const url = {
+        x: `https://x.com/intent/post?text=${enc(caption)}&url=${enc(momentLink)}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${enc(momentLink)}`,
+        linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${enc(`${caption}\n\n${momentLink}`)}`,
+      }[platform];
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      navigator.clipboard.writeText(`${caption}\n\n${momentLink}`).catch(() => undefined);
+      notify(platform === "facebook" ? "Caption copied. Paste it into the Facebook post." : `Post opened in ${PLATFORM_NAMES[platform]} with your caption and a link to this moment.`);
+      return;
+    }
+    createShort(index, platform);
   }
-  function changeSchedPlatform(p: Platform) {
-    if (!sched) return;
-    const t = nextBestTime(p);
-    const local = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    setSched({ ...sched, platform: p, time: local, caption: `${sched.clip.posts[p] ?? ""}\n\n${(sched.clip.hashtags[p] ?? []).join(" ")}`.trim() });
+
+  /** Render the shorts (asking for the video file if this project doesn't have it yet). */
+  function createShort(index: number, platform?: Platform) {
+    if (!project) return;
+    if (renders[index]?.status === "rendering" || renders[index]?.status === "queued") {
+      return notify("This short is being created. Keep this tab open, then click the button again.");
+    }
+    pendingPublish.current = platform ? { platform, index } : null;
+    if (fileUrl.current && renderVideo.current?.src) {
+      notify("Creating your shorts…");
+      void exportWithFile(null);
+      return;
+    }
+    notify(platform ? `${PLATFORM_NAMES[platform]} needs the video itself. Choose the video file to create the shorts.` : "Choose the video file to create the shorts.");
+    createInput.current?.click();
   }
-  function saveSchedule(e: React.FormEvent) {
-    e.preventDefault();
-    if (!sched) return;
-    const item: ScheduledPost = { id: `${Date.now()}`, clipTitle: sched.clip.title, platform: PLATFORM_LABELS[sched.platform], time: new Date(sched.time).toISOString(), caption: sched.caption };
-    setSchedule((cur) => [...cur, item].sort((a, b) => a.time.localeCompare(b.time)));
-    dialogRef.current?.close();
-    notify("Added to your posting schedule");
-  }
-  const icsUrl = useMemo(() => (schedule.length ? URL.createObjectURL(new Blob([buildIcs(schedule)], { type: "text/calendar" })) : ""), [schedule]);
 
   const plan = project?.plan;
   const videoId = project?.source.kind === "youtube" ? project.source.videoId : undefined;
@@ -880,7 +907,7 @@ export default function Studio() {
               <div className="clips">
                 {plan.clips.map((c, i) => (
                   <ClipCard key={`${project.id}-${i}`} index={i} clip={c} platforms={project.platforms} videoId={videoId}
-                    render={renders[i]} onCopy={copy} onSchedule={openSchedule} onPostYouTube={() => openYouTubePost(i)} onShare={(p) => shareTo(p, i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
+                    render={renders[i]} onCopy={copy} onPublish={(p) => publish(p, i)} onCreate={() => createShort(i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
                 ))}
               </div>
 
@@ -916,25 +943,6 @@ export default function Studio() {
                   <div className="tags" style={{ margin: "6px 0 14px" }}>{plan.hashtag_bank.niche.map((t) => <span key={t}>{t}</span>)}</div>
                   <button type="button" className="btn small" onClick={() => copy([...plan.hashtag_bank.broad, ...plan.hashtag_bank.niche].join(" "))}>Copy all hashtags</button>
 
-                  <h3 style={{ marginTop: 26 }}>🗓 Posting schedule</h3>
-                  {schedule.length === 0 ? (
-                    <p className="muted" style={{ margin: 0 }}>Click <b>Schedule</b> on a clip to plan when it goes out. ViralCut suggests peak times per platform.</p>
-                  ) : (
-                    <>
-                      <ul className="schedule-list">
-                        {schedule.map((p) => (
-                          <li key={p.id}>
-                            <b>{p.platform}</b>
-                            <span className="mono">{new Date(p.time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>
-                            <span className="t">{p.clipTitle}</span>
-                            <button type="button" className="btn small" onClick={() => copy(p.caption)}>Copy</button>
-                            <button type="button" className="btn small ghost" aria-label="Remove" onClick={() => setSchedule((cur) => cur.filter((x) => x.id !== p.id))}>✕</button>
-                          </li>
-                        ))}
-                      </ul>
-                      <a className="btn small" style={{ marginTop: 12 }} href={icsUrl} download="viralcut-schedule.ics">Add to calendar (.ics)</a>
-                    </>
-                  )}
                 </div>
               </div>
             </div>
@@ -988,9 +996,6 @@ export default function Studio() {
                   onClick={() => setYtPost({ ...ytPost, schedule: "", meta: { ...ytPost.meta, privacy: v } })}>{v[0].toUpperCase() + v.slice(1)}</button>
               ))}
             </div>
-            <label htmlFor="ytWhen">Or schedule it <span className="muted">(goes public at this time)</span></label>
-            <input id="ytWhen" className="field" type="datetime-local" value={ytPost.schedule} disabled={ytPost.phase === "uploading"}
-              onChange={(e) => setYtPost({ ...ytPost, schedule: e.target.value })} />
             <p className="fineprint" style={{ marginTop: 10 }}>
               Google keeps uploads from new, unreviewed apps <b>private</b>. If that happens, open YouTube Studio and switch the video to Public.
             </p>
@@ -1010,7 +1015,7 @@ export default function Studio() {
               <button type="button" className="btn ghost" onClick={() => ytDialog.current?.close()}>{ytPost.phase === "done" ? "Close" : "Cancel"}</button>
               {ytPost.phase !== "done" && (
                 <button type="submit" className="btn yt-btn" disabled={ytPost.phase === "uploading"}>
-                  {ytPost.phase === "uploading" ? "Uploading…" : ytPost.schedule ? "Schedule on YouTube" : "Post to YouTube"}
+                  {ytPost.phase === "uploading" ? "Uploading…" : "Post to YouTube"}
                 </button>
               )}
             </div>
@@ -1018,30 +1023,7 @@ export default function Studio() {
         )}
       </dialog>
 
-      <dialog ref={dialogRef} className="modal" onClose={() => setSched(null)}>
-        {sched && (
-          <form onSubmit={saveSchedule}>
-            <h3>Schedule this short</h3>
-            <p className="muted" style={{ margin: 0 }}>{sched.clip.title}</p>
-            <label>Platform</label>
-            <div className="chips">
-              {project?.platforms.map((p) => {
-                const Icon = PLATFORM_ICONS[p];
-                return <button key={p} type="button" className="chip" aria-pressed={sched.platform === p} onClick={() => changeSchedPlatform(p)}><Icon size={14} /> {PLATFORM_LABELS[p]}</button>;
-              })}
-            </div>
-            <label htmlFor="when">When <span className="muted">(suggested peak time)</span></label>
-            <input id="when" className="field" type="datetime-local" required value={sched.time} onChange={(e) => setSched({ ...sched, time: e.target.value })} />
-            <label htmlFor="cap">Caption</label>
-            <textarea id="cap" className="field" rows={6} value={sched.caption} onChange={(e) => setSched({ ...sched, caption: e.target.value })} style={{ fontFamily: "var(--sans)" }} />
-            <div className="modal-actions">
-              <button type="button" className="btn ghost" onClick={() => dialogRef.current?.close()}>Cancel</button>
-              <button type="submit" className="btn primary">Add to schedule</button>
-            </div>
-          </form>
-        )}
-      </dialog>
-
+      <input ref={createInput} type="file" accept="video/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void exportWithFile(f); }} />
       <div className={`toast${toast ? " show" : ""}`} role="status">{toast}</div>
     </>
   );

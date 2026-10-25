@@ -86,8 +86,8 @@ export default function Features() {
                   <span><YouTube size={30} /></span><span><Instagram size={30} /></span><span><Facebook size={30} /></span><span><XLogo size={30} /></span>
                 </div>
               </div>
-              <h3>Social media scheduling</h3>
-              <p>Plan every short at each platform&apos;s peak time and add the whole schedule to Google, Apple or Outlook calendar in one click.</p>
+              <h3>One-click publishing</h3>
+              <p>Publish each short straight to YouTube Shorts, or open Instagram, Facebook and X with the video and caption ready to post.</p>
             </article>
           </div>
         </div>
@@ -102,7 +102,7 @@ export default function Features() {
           <ol className="how">
             <li><h3>Paste a link or upload</h3><p>YouTube links are read from their captions. Uploaded videos are transcribed by Whisper right in your browser.</p></li>
             <li><h3>AI finds the viral moments</h3><p>Every moment is scored for its hook, energy, emotion and payoff. You get the best clips with timestamps and the reason each will perform.</p></li>
-            <li><h3>Download, post, schedule</h3><p>Export captioned 9:16 MP4s, copy the posts and hashtags, and drop the schedule into your calendar.</p></li>
+            <li><h3>Create & publish</h3><p>Create captioned 9:16 shorts, then publish them to YouTube, Instagram, Facebook and X with one click each.</p></li>
           </ol>
         </div>
       </section>

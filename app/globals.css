@@ -254,3 +254,15 @@ dialog.modal label { display: block; margin: 14px 0 6px; font-size: 13px; font-w
 .share-row { display: flex; align-items: center; gap: 8px; padding: 0 16px 16px; flex-wrap: wrap; font-size: 12.5px; font-weight: 700; color: var(--muted); }
 .share-btn { width: 40px; height: 40px; border-radius: 11px; border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.04); display: grid; place-items: center; padding: 0; transition: transform 0.15s, border-color 0.15s; }
 .share-btn:hover { transform: translateY(-2px); border-color: var(--blue); }
+
+.publish { padding: 14px 16px 2px; display: grid; gap: 8px; }
+.publish-label { font-size: 11.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.publish-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pub { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 10px; border-radius: 11px; border: 0; color: #fff; font-weight: 800; font-size: 14px; text-decoration: none; transition: transform 0.12s, filter 0.12s; }
+.pub:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.pub svg rect, .pub svg circle { }
+.pub-youtube { background: #ff0033; }
+.pub-instagram { background: linear-gradient(90deg, #f58529, #dd2a7b 50%, #8134af); }
+.pub-facebook { background: #0866ff; }
+.pub-x { background: #000; border: 1px solid #333; }
+.pub-linkedin { background: #0a66c2; }
