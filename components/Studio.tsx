@@ -330,7 +330,7 @@ export default function Studio() {
           transcriptSource = "pasted transcript";
         } else {
           setStep(1);
-          setStatus("Reading the video's captions from YouTube…");
+          setStatus("Reading the video's speech (long videos can take a couple of minutes)…");
           const res = await fetch("/api/transcript", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-access-code": accessCode },
@@ -343,7 +343,7 @@ export default function Studio() {
           sentences = data.sentences;
           title = data.title;
           duration = data.duration;
-          transcriptSource = `YouTube captions (${data.language})`;
+          transcriptSource = data.source === "gemini" ? "Gemini (watched the video)" : `YouTube captions (${data.language})`;
         }
         if (!title) title = "YouTube video";
       } else {

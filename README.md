@@ -48,7 +48,7 @@ Upload / .mp4 ─► Whisper in browser ─────────┘          
                                                        (face tracking, captions, hook) ─► 9:16 MP4
 ```
 
-- `app/api/transcript`: reads YouTube captions without an API key. YouTube sometimes refuses requests from cloud servers. When that happens, the site asks for the transcript (YouTube: **…more → Show transcript**) or the video file.
+- `app/api/transcript`: reads YouTube captions without an API key. YouTube often refuses requests from cloud servers like Vercel; with a `GEMINI_API_KEY` set, Gemini then watches the public video itself and returns a timestamped transcript. Without one, the site asks for the transcript (YouTube: **…more → Show transcript**) or the video file.
 - `app/api/clips` + `lib/llm.ts`: asks the AI service you configured for a JSON plan and streams it to the browser. The service is picked from whichever key is set (Gemini, then Groq, then Anthropic), or with `VIRALCUT_PROVIDER`. Default models: `gemini-flash-latest`, `llama-3.3-70b-versatile`, `claude-opus-5-5` (override with `VIRALCUT_MODEL`).
 - `lib/render.ts`: the in-browser renderer. Clips render in real time, so keep the tab open. Chrome/Edge/Safari export MP4; Firefox exports WebM.
 - `public/workers/whisper.js`: speech recognition (transformers.js + `Xenova/whisper-base`, downloaded once by the browser, about 150 MB).

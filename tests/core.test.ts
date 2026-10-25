@@ -162,3 +162,25 @@ test("reads Gemini's streamed answer and Groq's JSON answer", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test("Gemini video transcript is parsed into timed sentences", async () => {
+  const { transcribeYouTubeWithGemini } = await import("../lib/geminiVideo.ts");
+  const realFetch = globalThis.fetch;
+  const saved = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "k";
+  let sent: any;
+  try {
+    globalThis.fetch = (async (_u: string, init: any) => {
+      sent = JSON.parse(init.body);
+      return Response.json({ candidates: [{ content: { parts: [{ text: "TITLE: My Talk\n[0:00] Why does nobody price right?\n[0:06] Here is the secret.\n[1:02:03] The end." }] } }] });
+    }) as typeof fetch;
+    const t = await transcribeYouTubeWithGemini("RKF42sgl8QQ");
+    assert.equal(t.title, "My Talk");
+    assert.equal(t.sentences.length, 3);
+    assert.equal(t.sentences[2].start, 3723);
+    assert.equal(sent.contents[0].parts[0].fileData.fileUri, "https://www.youtube.com/watch?v=RKF42sgl8QQ");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = saved;
+  }
+});
