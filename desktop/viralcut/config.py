@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).parent
-EDITABLE = ("ANTHROPIC_API_KEY", "VIRALCUT_WHISPER_MODEL")
+EDITABLE = ("GEMINI_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY", "VIRALCUT_WHISPER_MODEL")
 
 
 def data_dir() -> Path:

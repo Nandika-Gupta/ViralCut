@@ -7,6 +7,7 @@ import ProjectsPanel, { ProjectTitle } from "./Projects";
 import { Drive, Dropbox, Kick, Loom, PLATFORM_ICONS, Twitch, Upload, YouTube } from "./icons";
 import { offlineCopy, offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
+import { HELPER_DOWNLOAD_URL, downloadWithHelper, findHelper } from "@/lib/helper";
 import { getYouTubeToken, shortsTitle, uploadToYouTube, type YouTubeMeta } from "@/lib/youtubeUpload";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
 import { extractJson } from "@/lib/json";
@@ -575,6 +576,10 @@ export default function Studio() {
       await renderAll(project, s, ctl.signal);
       const pending = pendingPublish.current;
       pendingPublish.current = null;
+      if (autoDownload.current) {
+        autoDownload.current = false;
+        window.setTimeout(() => downloadAll.current?.(), 500); // after React shows the finished files
+      }
       if (pending) notify(`Shorts ready! Click ${PLATFORM_NAMES[pending.platform]} again to publish clip #${pending.index + 1}.`);
     } catch (err) {
       setError({ message: (err as Error).message });
@@ -758,6 +763,7 @@ export default function Studio() {
 
   /* ---- publish buttons ---- */
   const pendingPublish = useRef<{ platform: Platform; index: number } | null>(null);
+  const autoDownload = useRef(false);
   const [needFile, setNeedFile] = useState<{ platform?: Platform; index: number } | null>(null);
   const needFileDialog = useRef<HTMLDialogElement>(null);
 
@@ -790,8 +796,9 @@ export default function Studio() {
   }
 
   /** Render the shorts (asking for the video file if this project doesn't have it yet). */
-  function createShort(index: number, platform?: Platform) {
+  function createShort(index: number, platform?: Platform, downloadAll = false) {
     if (!project) return;
+    autoDownload.current = downloadAll;
     if (renders[index]?.status === "rendering" || renders[index]?.status === "queued") {
       return notify("This short is being created. Keep this tab open, then click the button again.");
     }
@@ -801,11 +808,57 @@ export default function Studio() {
       void exportWithFile(null);
       return;
     }
+    if (project.source.kind === "youtube") {
+      void downloadThenCreate(project.source.url, platform, index);
+      return;
+    }
     setNeedFile({ platform, index });
     window.setTimeout(() => needFileDialog.current?.showModal(), 0);
   }
 
+  /** YouTube links: the ViralCut app on this computer downloads the video, then every short is created here. */
+  async function downloadThenCreate(url: string, platform: Platform | undefined, index: number) {
+    notify("Looking for the ViralCut app on this computer…");
+    const base = await findHelper();
+    if (!base) {
+      setNeedFile({ platform, index });
+      window.setTimeout(() => needFileDialog.current?.showModal(), 0);
+      return;
+    }
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    setPhase("working");
+    setStep(0);
+    setError(null);
+    window.setTimeout(() => studioRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    try {
+      const { file } = await downloadWithHelper(base, url, (msg, f) => { setStatus(msg); setFraction(f); }, ctl.signal);
+      setFraction(null);
+      await exportWithFile(file);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return;
+      setError({ message: `${(err as Error).message} You can also choose the video file yourself.` });
+      setPhase("done");
+      setStatus("");
+    }
+  }
+
   const plan = project?.plan;
+  // Always points at a function that sees the latest rendered files (used after "Download all shorts" finishes creating them).
+  const downloadAll = useRef<(() => void) | null>(null);
+  downloadAll.current = () => {
+    if (!project) return;
+    project.plan.clips.forEach((c, i) => {
+      const r = renders[i];
+      if (!r?.url) return;
+      window.setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = r.url!;
+        a.download = `viralcut-${i + 1}-${slug(c.title)}.${r.ext}`;
+        a.click();
+      }, i * 400);
+    });
+  };
   const videoId = project?.source.kind === "youtube" ? project.source.videoId : undefined;
   const allRendered = plan ? plan.clips.every((_, i) => renders[i]?.status === "done") : false;
   const timelineEnd = plan ? Math.max(project!.duration, ...plan.clips.map((c) => c.end)) : 1;
@@ -979,14 +1032,7 @@ export default function Studio() {
                   <p className="fineprint">{formatTime(project.duration)} video · {project.engine} · transcript: {project.transcriptSource}</p>
                 </div>
                 {allRendered && (
-                  <button type="button" className="btn primary" onClick={() => plan.clips.forEach((c, i) => {
-                    const r = renders[i];
-                    if (!r?.url) return;
-                    const a = document.createElement("a");
-                    a.href = r.url;
-                    a.download = `viralcut-${i + 1}-${slug(c.title)}.${r.ext}`;
-                    a.click();
-                  })}>⬇ Download all shorts</button>
+                  <button type="button" className="btn primary" onClick={() => downloadAll.current?.()}>⬇ Download all shorts</button>
                 )}
               </div>
 
@@ -1004,10 +1050,13 @@ export default function Studio() {
               {phase === "done" && Object.keys(renders).length === 0 && (
                 <div className="export-drop">
                   <span>
-                    <b>Export 9:16 MP4s with captions:</b>{" "}
-                    {videoId ? "add the video file and ViralCut renders every clip in your browser." : "add the original video file again to render these clips."}
+                    <b>Get downloadable 9:16 MP4s with captions</b>{" "}
+                    {videoId ? "for every clip, ready for YouTube Shorts and Instagram Reels." : "by adding the original video file again."}
                   </span>
-                  <button type="button" className="btn" onClick={() => exportInput.current?.click()}><Upload /> Add video file</button>
+                  <div className="row">
+                    {videoId && <button type="button" className="btn primary" onClick={() => createShort(0, undefined, true)}>⬇ Download all shorts</button>}
+                    <button type="button" className="btn" onClick={() => exportInput.current?.click()}><Upload /> {videoId ? "I have the file" : "Add video file"}</button>
+                  </div>
                   <input ref={exportInput} type="file" accept="video/*" hidden onChange={(e) => e.target.files?.[0] && exportWithFile(e.target.files[0])} />
                 </div>
               )}
@@ -1132,23 +1181,34 @@ export default function Studio() {
       <dialog ref={needFileDialog} className="modal" onClose={() => setNeedFile(null)}>
         {needFile && (
           <div>
-            <h3>{needFile.platform ? `${PLATFORM_NAMES[needFile.platform]} needs the video itself` : "Create the short"}</h3>
+            <h3>{needFile.platform ? `${PLATFORM_NAMES[needFile.platform]} needs the video itself` : "Create downloadable shorts"}</h3>
             <p className="muted">
               {needFile.platform === "youtube" || needFile.platform === "instagram"
                 ? `${needFile.platform === "youtube" ? "YouTube Shorts" : "Instagram Reels"} only accept an uploaded video, not a link. `
                 : ""}
-              ViralCut turns each clip into a vertical 9:16 short with captions, right here in your browser. It needs the
-              original video file once (the same video you pasted the link for).
+              ViralCut turns each clip into a vertical 9:16 MP4 with captions, ready to download and post.
             </p>
-            <ol className="setup-steps">
-              <li>Click <b>Choose video file</b> and pick the video (MP4) from your computer.</li>
-              <li>Keep this tab open while the shorts are created (about as long as each clip).</li>
-              <li>Click <b>{needFile.platform ? PLATFORM_NAMES[needFile.platform] : "Publish"}</b> again to post it.</li>
-            </ol>
-            <p className="fineprint">Don&apos;t have the file? Facebook and X work without it: they post a link to this moment.</p>
+            {project?.source.kind === "youtube" ? (
+              <>
+                <p className="muted" style={{ marginBottom: 6 }}><b>Download straight from the YouTube link</b> with the free ViralCut app for Windows. It runs in the background and fetches the video for this website (YouTube blocks websites from doing it themselves):</p>
+                <ol className="setup-steps">
+                  <li><a href={HELPER_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">Download and install ViralCut for Windows</a> (one time), then open it.</li>
+                  <li>Come back here and click <b>Try again</b>. If your browser asks to access apps on this device, click <b>Allow</b>.</li>
+                </ol>
+                <p className="fineprint">Or choose the video file yourself if you already have it.</p>
+              </>
+            ) : (
+              <ol className="setup-steps">
+                <li>Click <b>Choose video file</b> and pick the video (MP4) from your computer.</li>
+                <li>Keep this tab open while the shorts are created (about as long as each clip).</li>
+              </ol>
+            )}
             <div className="modal-actions">
               <button type="button" className="btn ghost" onClick={() => needFileDialog.current?.close()}>Cancel</button>
-              <button type="button" className="btn primary" onClick={() => { needFileDialog.current?.close(); createInput.current?.click(); }}>Choose video file</button>
+              <button type="button" className={project?.source.kind === "youtube" ? "btn" : "btn primary"} onClick={() => { needFileDialog.current?.close(); createInput.current?.click(); }}>Choose video file</button>
+              {project?.source.kind === "youtube" && (
+                <button type="button" className="btn primary" onClick={() => { const nf = needFile; needFileDialog.current?.close(); if (nf) createShort(nf.index, nf.platform); }}>Try again</button>
+              )}
             </div>
           </div>
         )}

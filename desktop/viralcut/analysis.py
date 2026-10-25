@@ -221,11 +221,11 @@ def find_moments(sentences: list[Sentence], loudness: np.ndarray, duration: floa
 
 
 # ---------------------------------------------------------------------------
-# Offline copywriting (used when no ANTHROPIC_API_KEY is configured)
+# Offline copywriting (used when no AI key is configured)
 # ---------------------------------------------------------------------------
 
 BROAD_TAGS = {
-    "tiktok": ["#fyp", "#foryou", "#viral"],
+    "facebook": ["#reels", "#viral"],
     "instagram": ["#reels", "#explorepage", "#viralreels"],
     "youtube": ["#shorts", "#youtubeshorts"],
     "x": [],
@@ -258,7 +258,7 @@ def offline_copy(cand: Candidate, index: int, source_title: str = "") -> dict:
     niche = hashtags_for(cand.text or source_title, limit=7)
     topic = " ".join(kw[:3]) or "this"
     posts = {
-        "tiktok": f"{title} 🤯 Watch till the end… #{''.join(kw[:1]) or 'viral'}",
+        "facebook": f"{title} 👀 Would you agree?",
         "instagram": f"{title}\n\nThis is the part nobody talks about about {topic}. 👀\n"
                      "Save this for later & share it with someone who needs to hear it. 🔁",
         "youtube": f"{title} #shorts",

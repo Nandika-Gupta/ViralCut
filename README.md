@@ -66,6 +66,14 @@ Upload / .mp4 ─► Whisper in browser ─────────┘          
 - `lib/render.ts`: the in-browser renderer. Clips render in real time, so keep the tab open. Chrome/Edge/Safari export MP4; Firefox exports WebM.
 - `public/workers/whisper.js`: speech recognition (transformers.js + `Xenova/whisper-base`, downloaded once by the browser, about 150 MB).
 
+## Download shorts from YouTube links
+
+YouTube blocks cloud servers (including Vercel) from downloading videos, so the website can't fetch them itself.
+Install the free **ViralCut app for Windows** (see Releases) and leave it open. When you click **Download all shorts**,
+**Create short**, **YouTube** or **Instagram** on a YouTube-link project, the website asks the app on your computer to
+download the video (Chrome may ask once to allow access to apps on this device). The shorts are then created in your
+browser and downloaded as MP4s.
+
 ## Limits
 
 - Websites can't download YouTube, Twitch, Kick, Google Drive or Loom videos. For YouTube links you get the clips as timestamped previews plus all the posts. Add the video file to export MP4s.

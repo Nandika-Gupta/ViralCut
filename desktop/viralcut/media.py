@@ -77,7 +77,7 @@ def loudness_curve(wav_path: str | Path) -> np.ndarray:
     return (20 * np.log10(rms)).astype(np.float32)
 
 
-def download(url: str, out_dir: Path) -> Path:
+def download(url: str, out_dir: Path, max_height: int = 1080) -> Path:
     """Download a video from YouTube/Twitch/Kick/Drive/etc. via yt-dlp."""
     if not url.lower().startswith(("http://", "https://")):
         raise ValueError("only http(s) links are supported")
@@ -87,7 +87,7 @@ def download(url: str, out_dir: Path) -> Path:
         raise RuntimeError("yt-dlp is not installed (pip install yt-dlp)") from exc
     opts = {
         "outtmpl": str(out_dir / "source.%(ext)s"),
-        "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
+        "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": True,

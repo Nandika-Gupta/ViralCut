@@ -25,7 +25,7 @@
         <h1>Turn one long video into <span class="grad">viral shorts</span>, automatically.</h1>
         <p class="sub">Paste a YouTube, Twitch, Kick, Drive or Dropbox link, or upload a file. ViralCut finds the most
           engaging moments, reframes them to 9:16 around the speaker's face, burns in animated captions, and writes
-          posts and hashtags for TikTok, Reels, Shorts, X and LinkedIn.</p>
+          posts and hashtags for YouTube Shorts, Instagram Reels, Facebook and X.</p>
       </div>
 
       <form id="jobForm" class="card create-card">
@@ -90,7 +90,7 @@
             </div>
             <div class="field">
               <label class="toggle"><input id="showHook" type="checkbox" checked /> <span>Hook title in the first 3s</span></label>
-              <label class="toggle"><input id="useAi" type="checkbox" checked /> <span>Use Claude for clip picking &amp; copy</span></label>
+              <label class="toggle"><input id="useAi" type="checkbox" checked /> <span>Use AI (Gemini, Groq or Claude) for clip picking &amp; copy</span></label>
             </div>
             <div class="field">
               <label>Transcript (optional)</label>
@@ -179,10 +179,13 @@
     <form method="dialog" id="settingsForm">
       <h3>Settings</h3>
       <p class="muted">Saved on this computer only.</p>
-      <label for="apiKey">Claude API key <small class="muted" id="keyHint"></small></label>
+      <p class="hint">Add one AI key for the best clip picks, posts and hashtags. Leave all empty for the free offline mode.</p>
+      <label for="geminiKey">Gemini API key (free, recommended) <small class="muted" id="geminiHint"></small></label>
+      <input type="password" id="geminiKey" class="input" placeholder="AIza… (aistudio.google.com/apikey)" autocomplete="off" />
+      <label for="groqKey">Groq API key (free backup) <small class="muted" id="groqHint"></small></label>
+      <input type="password" id="groqKey" class="input" placeholder="gsk_… (console.groq.com/keys)" autocomplete="off" />
+      <label for="apiKey">Claude API key (paid, optional) <small class="muted" id="keyHint"></small></label>
       <input type="password" id="apiKey" class="input" placeholder="sk-ant-…" autocomplete="off" />
-      <p class="hint">Gives the best clip picks, posts and hashtags. Get one at console.anthropic.com → API Keys.
-        Leave empty to use the free offline mode.</p>
       <label for="whisperModel">Speech recognition quality</label>
       <select id="whisperModel" class="input">
         <option value="tiny">Fastest (tiny)</option>
@@ -194,7 +197,7 @@
       <p id="settingsError" class="error hidden"></p>
       <div class="row-end">
         <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
-        <button class="btn ghost" id="removeKey" type="button">Remove key</button>
+        <button class="btn ghost" id="removeKey" type="button">Remove all keys</button>
         <button class="btn primary" value="save">Save</button>
       </div>
     </form>

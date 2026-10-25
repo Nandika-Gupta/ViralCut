@@ -196,7 +196,7 @@ def run_job(store: JobStore, job: Job, video_path: Path | None = None, url: str 
         plans = []
         job.engine = "offline heuristics"
         if s.use_ai and ai.available() and sentences:
-            _update(store, job, "copywrite", 0.45, f"Claude is picking clips & writing posts ({ai.MODEL})…")
+            _update(store, job, "copywrite", 0.45, f"{ai.describe()} is picking clips & writing posts…")
             try:
                 result = ai.plan_clips(
                     sentences, s.clip_count, s.min_len, s.max_len,
@@ -205,10 +205,10 @@ def run_job(store: JobStore, job: Job, video_path: Path | None = None, url: str 
                 )
                 job.summary, job.long_form_post = result.video_summary, result.long_form_post
                 plans = _plans_from_ai(result, sentences, loudness, s)
-                job.engine = f"Claude ({ai.MODEL})"
+                job.engine = ai.describe()
             except Exception as exc:  # pylint: disable=broad-except
-                log.warning("Claude planning failed, using heuristics: %s", exc)
-                job.engine = f"offline heuristics (Claude error: {str(exc)[:160]})"
+                log.warning("AI planning failed, using heuristics: %s", exc)
+                job.engine = f"offline heuristics (AI error: {str(exc)[:160]})"
         if not plans:
             _update(store, job, "copywrite", 0.45, "Writing titles, posts & hashtags…")
             plans = [{"start": c.start, "end": c.end, "score": c.score, "signals": c.signals,

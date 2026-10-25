@@ -3,11 +3,11 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const PLATFORMS = [
-  ["tiktok", "TikTok"], ["instagram", "Reels"], ["youtube", "Shorts"], ["x", "X"], ["linkedin", "LinkedIn"],
+  ["youtube", "Shorts"], ["instagram", "Reels"], ["facebook", "Facebook"], ["x", "X"], ["linkedin", "LinkedIn"],
 ];
 // General best-practice posting slots (local time): [hour, minute, preferred weekdays (0=Sun)]
 const BEST_TIMES = {
-  tiktok: [19, 0, [2, 4, 5]], instagram: [11, 0, [1, 3, 5]], youtube: [15, 0, [4, 5, 6]],
+  facebook: [13, 0, [3, 4, 5]], instagram: [11, 0, [1, 3, 5]], youtube: [15, 0, [4, 5, 6]],
   x: [9, 0, [2, 3, 4]], linkedin: [8, 30, [2, 3, 4]],
 };
 const STEP_ORDER = ["ingest", "transcribe", "analyze", "copywrite", "render", "done"];
@@ -58,11 +58,11 @@ async function loadConfig() {
     const cfg = await api("/api/config");
     const chips = $("#statusChips");
     chips.replaceChildren(
-      el("span", { class: `chip ${cfg.ai ? "ok" : "off"}` }, cfg.ai ? `🧠 Claude · ${cfg.model}` : "🧠 Offline AI mode"),
+      el("span", { class: `chip ${cfg.ai ? "ok" : "off"}` }, cfg.ai ? `🧠 ${cfg.model}` : "🧠 Offline AI mode"),
       el("span", { class: `chip ${cfg.whisper ? "ok" : "off"}` }, cfg.whisper ? "🎙️ Whisper ready" : "🎙️ No Whisper"),
       el("span", { class: `chip ${cfg.ffmpeg ? "ok" : "off"}` }, cfg.ffmpeg ? "🎞️ FFmpeg" : "⚠️ FFmpeg missing"),
     );
-    if (!cfg.ai) $("#useAi").parentElement.title = "Add your Claude API key in Settings to enable Claude";
+    if (!cfg.ai) $("#useAi").parentElement.title = "Add a free Gemini API key in Settings to enable AI";
   } catch { /* server status is decorative */ }
 }
 
@@ -70,9 +70,11 @@ async function openSettings() {
   $("#settingsError").classList.add("hidden");
   try {
     const s = await api("/api/settings");
-    $("#apiKey").value = "";
-    $("#apiKey").placeholder = s.has_key ? "Key saved. Paste a new one to replace it" : "sk-ant-…";
-    $("#keyHint").textContent = s.has_key ? `· saved (${s.key_hint})` : "· not set";
+    for (const [field, hint, name] of [["#geminiKey", "#geminiHint", "gemini"], ["#groqKey", "#groqHint", "groq"], ["#apiKey", "#keyHint", "anthropic"]]) {
+      const k = s.keys[name];
+      $(field).value = "";
+      $(hint).textContent = k.set ? `· saved (${k.hint})` : "· not set";
+    }
     $("#whisperModel").value = s.whisper_model;
     $("#removeKey").classList.toggle("hidden", !s.has_key);
     $("#settingsDialog").showModal();
@@ -231,7 +233,7 @@ function renderJob(job) {
 function scoreClass(s) { return s >= 85 ? "hot" : s >= 70 ? "good" : "ok"; }
 
 function clipCard(job, clip) {
-  let platform = "tiktok";
+  let platform = "youtube";
   const postText = el("p", { class: "post-text" });
   const tags = el("div", { class: "tags" });
   const showPost = () => {
@@ -349,11 +351,13 @@ $("#backBtn").addEventListener("click", () => { location.hash = ""; });
 $("#copyLong").addEventListener("click", () => copy($("#longPost").textContent));
 $("#schedForm").addEventListener("submit", saveSchedule);
 $("#settingsBtn").addEventListener("click", openSettings);
-$("#removeKey").addEventListener("click", () => saveSettings({ anthropic_api_key: "" }));
+$("#removeKey").addEventListener("click", () => saveSettings({ gemini_api_key: "", groq_api_key: "", anthropic_api_key: "" }));
 $("#settingsForm").addEventListener("submit", (e) => {
   if (e.submitter && e.submitter.value !== "save") return;
   e.preventDefault();
   const body = { whisper_model: $("#whisperModel").value };
+  if ($("#geminiKey").value.trim()) body.gemini_api_key = $("#geminiKey").value.trim();
+  if ($("#groqKey").value.trim()) body.groq_api_key = $("#groqKey").value.trim();
   if ($("#apiKey").value.trim()) body.anthropic_api_key = $("#apiKey").value.trim();
   saveSettings(body);
 });

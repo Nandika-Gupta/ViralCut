@@ -17,12 +17,16 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import hashlib
+from urllib.parse import quote, urlparse
+
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, ai, config
+from . import __version__, ai, config, media
 from .pipeline import JobSettings, JobStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -31,7 +35,7 @@ DATA_DIR = config.data_dir()
 WEB_DIR = Path(__file__).parent / "web"
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv", ".wmv", ".mpeg", ".mpg", ".ts"}
 SERVABLE = re.compile(r"^(clip_\d{2}\.(mp4|jpg|ass)|transcript\.(txt|json))$")
-PLATFORMS = ("tiktok", "instagram", "youtube", "x", "linkedin")
+PLATFORMS = ("youtube", "instagram", "facebook", "x", "linkedin")
 
 app = FastAPI(title="ViralCut", version=__version__)
 store = JobStore(DATA_DIR / "jobs", workers=int(os.environ.get("VIRALCUT_WORKERS", "1")))
@@ -80,7 +84,7 @@ def app_config() -> dict:
         whisper = True
     except ImportError:
         whisper = False
-    return {"version": __version__, "ai": ai.available(), "model": ai.MODEL, "whisper": whisper,
+    return {"version": __version__, "ai": ai.available(), "model": ai.describe(), "whisper": whisper,
             "ffmpeg": shutil.which("ffmpeg") is not None}
 
 
@@ -177,34 +181,51 @@ def export_zip(job_id: str) -> StreamingResponse:
 
 
 class SettingsUpdate(BaseModel):
+    gemini_api_key: str | None = None
+    groq_api_key: str | None = None
     anthropic_api_key: str | None = None
     whisper_model: str | None = None
 
 
 def _local_only(request: Request) -> None:
-    # Settings hold the API key: only the person sitting at this computer may read or change them.
+    # Settings hold the API keys: only the person sitting at this computer may read or change them.
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
         raise HTTPException(403, "settings can only be changed on the computer running ViralCut")
 
 
+def _hint(key: str) -> str:
+    return f"{key[:6]}…{key[-4:]}" if len(key) > 12 else ""
+
+
 @app.get("/api/settings")
 def get_settings(request: Request) -> dict:
     _local_only(request)
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    return {"has_key": bool(key), "key_hint": f"{key[:7]}…{key[-4:]}" if len(key) > 12 else "",
-            "whisper_model": os.environ.get("VIRALCUT_WHISPER_MODEL", "small")}
+    keys = {name: os.environ.get(env, "") for name, env in
+            (("gemini", "GEMINI_API_KEY"), ("groq", "GROQ_API_KEY"), ("anthropic", "ANTHROPIC_API_KEY"))}
+    return {
+        "keys": {k: {"set": bool(v), "hint": _hint(v)} for k, v in keys.items()},
+        "has_key": any(keys.values()),
+        "whisper_model": os.environ.get("VIRALCUT_WHISPER_MODEL", "small"),
+    }
 
 
 @app.post("/api/settings")
 def update_settings(request: Request, body: SettingsUpdate) -> dict:
     _local_only(request)
     updates = {}
-    if body.anthropic_api_key is not None:
-        key = body.anthropic_api_key.strip()
-        if key and not key.startswith("sk-ant-"):
-            raise HTTPException(400, "Claude API keys start with sk-ant-")
-        updates["ANTHROPIC_API_KEY"] = key
+    for field, env, prefix, name in (
+        ("gemini_api_key", "GEMINI_API_KEY", "AIza", "Gemini"),
+        ("groq_api_key", "GROQ_API_KEY", "gsk_", "Groq"),
+        ("anthropic_api_key", "ANTHROPIC_API_KEY", "sk-ant-", "Claude"),
+    ):
+        value = getattr(body, field)
+        if value is None:
+            continue
+        value = value.strip()
+        if value and not value.startswith(prefix):
+            raise HTTPException(400, f"{name} API keys start with {prefix}")
+        updates[env] = value
     if body.whisper_model is not None:
         if body.whisper_model not in ("tiny", "base", "small", "medium", "large-v3"):
             raise HTTPException(400, "unknown speech model")
@@ -273,3 +294,66 @@ def schedule_ics(job_id: str) -> Response:
     lines.append("END:VCALENDAR")
     return Response("\r\n".join(lines) + "\r\n", media_type="text/calendar",
                     headers={"Content-Disposition": f'attachment; filename="schedule_{job_id}.ics"'})
+
+
+# ---------------------------------------------------------------------------
+# Helper for the ViralCut website: YouTube blocks cloud servers, so the website asks the app running on the
+# user's own computer to download the video, then creates the shorts in the browser.
+# ---------------------------------------------------------------------------
+
+WEB_ORIGINS = os.environ.get(
+    "VIRALCUT_WEB_ORIGINS", r"https://([a-z0-9-]+\.)*vercel\.app|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?"
+)
+HELPER_HOSTS = re.compile(
+    r"(^|\.)(youtube\.com|youtu\.be|twitch\.tv|kick\.com|vimeo\.com|x\.com|twitter\.com|loom\.com|dropbox\.com"
+    r"|drive\.google\.com|facebook\.com|fb\.watch|instagram\.com)$"
+)
+app.add_middleware(
+    CORSMiddleware, allow_origin_regex=WEB_ORIGINS, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"],
+    expose_headers=["Content-Length", "X-Video-Title"], max_age=600,
+)
+
+
+@app.middleware("http")
+async def private_network_access(request: Request, call_next):
+    """Chrome asks before a public website may talk to an app on this computer; this header says the app agrees."""
+    response = await call_next(request)
+    if request.headers.get("access-control-request-private-network"):
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
+@app.get("/api/helper/ping")
+def helper_ping() -> dict:
+    return {"app": "viralcut-helper", "version": __version__}
+
+
+class HelperDownload(BaseModel):
+    url: str
+
+
+@app.post("/api/helper/download")
+def helper_download(body: HelperDownload) -> FileResponse:
+    url = body.url.strip()
+    host = (urlparse(url).hostname or "").lower()
+    if not url.lower().startswith(("http://", "https://")) or not HELPER_HOSTS.search(host):
+        raise HTTPException(400, "Only video links from YouTube, Instagram, Facebook, X, Twitch, Kick, Vimeo, Loom, Dropbox or Drive")
+    root = DATA_DIR / "downloads"
+    folder = root / hashlib.sha1(url.encode()).hexdigest()[:16]
+    cached = sorted(folder.glob("source.*"), key=lambda p: p.stat().st_size, reverse=True) if folder.exists() else []
+    if cached and cached[0].suffix != ".part":
+        path = cached[0]
+    else:
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            path = media.download(url, folder, max_height=720)
+        except Exception as exc:  # pylint: disable=broad-except
+            shutil.rmtree(folder, ignore_errors=True)
+            message = str(exc).replace("ERROR: ", "")[:300]
+            raise HTTPException(502, f"Couldn't download this video: {message}") from exc
+        # keep only the 5 most recent downloads
+        for old in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[5:]:
+            shutil.rmtree(old, ignore_errors=True)
+    title_file = folder / "source_title.txt"
+    title = title_file.read_text(encoding="utf-8") if title_file.exists() else ""
+    return FileResponse(path, media_type="video/mp4", filename=f"video{path.suffix}", headers={"X-Video-Title": quote(title)})

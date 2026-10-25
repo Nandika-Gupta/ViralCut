@@ -88,7 +88,7 @@ def test_hashtags_and_offline_copy():
     cand = analysis.Candidate(1, 12, " ".join(s.text for s in sentences[:3]), sentences[:3])
     analysis.score_candidate(cand, np.zeros(100), [])
     copy = analysis.offline_copy(cand, 0)
-    assert set(copy["posts"]) == {"tiktok", "instagram", "youtube", "x", "linkedin"}
+    assert set(copy["posts"]) == {"facebook", "instagram", "youtube", "x", "linkedin"}
     assert "#shorts" in copy["hashtags"]["youtube"]
 
 
@@ -139,14 +139,14 @@ def test_claude_plans_are_snapped_and_normalised():
     from viralcut.pipeline import _plans_from_ai  # pylint: disable=import-outside-toplevel
 
     sentences = parse_subtitles(SRT)
-    posts = ai.PlatformPosts(tiktok="t", instagram="i", youtube="y", x="x", linkedin="l")
-    tags = ai.PlatformHashtags(tiktok=["fyp", "#ai"], instagram=[], youtube=["#shorts"], x=[], linkedin=[])
+    posts = ai.PlatformPosts(facebook="f", instagram="i", youtube="y", x="x", linkedin="l")
+    tags = ai.PlatformHashtags(facebook=["fyp", "#ai"], instagram=[], youtube=["#shorts"], x=[], linkedin=[])
     clip = ai.ClipPlan(start=1.2, end=11.8, title="T", hook="HOOK", virality_score=90, reason="r",
                        posts=posts, hashtags=tags)
     result = ai.ClipPlans(clips=[clip, clip], video_summary="s", long_form_post="p")
     plans = _plans_from_ai(result, sentences, np.zeros(200), JobSettings.from_dict({"min_len": 5, "max_len": 15}))
     assert len(plans) == 1  # duplicate overlapping clip dropped
-    assert plans[0]["start"] == 1.0 and plans[0]["hashtags"]["tiktok"] == ["#fyp", "#ai"]
+    assert plans[0]["start"] == 1.0 and plans[0]["hashtags"]["facebook"] == ["#fyp", "#ai"]
 
 
 def test_password_protection(monkeypatch, tmp_path):
@@ -183,3 +183,51 @@ def test_settings_api_saves_key(monkeypatch, tmp_path):
     assert "sk-ant-test-1234567890" in config.settings_path().read_text()
     assert client.post("/api/settings", json={"anthropic_api_key": ""}).json()["has_key"] is False
     monkeypatch.delenv("VIRALCUT_WHISPER_MODEL", raising=False)
+
+
+def test_ai_provider_order_and_json_parsing(monkeypatch):
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "VIRALCUT_PROVIDER", "VIRALCUT_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    assert ai.provider() is None and not ai.available()
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_x")
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza_x")
+    assert ai.provider()[0] == "gemini" and ai.describe().startswith("Gemini")
+    assert ai._extract_json('```json\n{"clips": []}\n```') == {"clips": []}  # pylint: disable=protected-access
+
+
+def test_gemini_plan_is_parsed_leniently(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza_x")
+    monkeypatch.delenv("VIRALCUT_PROVIDER", raising=False)
+    answer = '{"clips": [{"start": "0:01", "end": 11.5, "title": "T", "hook": "H", "virality_score": 90, "posts": {"youtube": "Y"}}]}'
+    monkeypatch.setattr(ai, "_gemini", lambda model, key, prompt: answer)
+    plans = ai.plan_clips(parse_subtitles(SRT), 1, 5, 15, [], "t")
+    assert plans.clips[0].start == 1.0 and plans.clips[0].posts.youtube == "Y" and plans.clips[0].hashtags.x == []
+
+
+def test_helper_allows_the_website_and_checks_links(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIRALCUT_DATA", str(tmp_path))
+    from fastapi.testclient import TestClient  # pylint: disable=import-outside-toplevel
+
+    from viralcut import app as app_module  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(app_module, "PASSWORD", "")
+    client = TestClient(app_module.app)
+    origin = "https://viral-cut-khaki.vercel.app"
+    pre = client.options("/api/helper/ping", headers={
+        "Origin": origin, "Access-Control-Request-Method": "GET", "Access-Control-Request-Private-Network": "true"})
+    assert pre.headers.get("access-control-allow-origin") == origin
+    assert pre.headers.get("access-control-allow-private-network") == "true"
+    assert client.get("/api/helper/ping", headers={"Origin": origin}).json()["app"] == "viralcut-helper"
+    bad = client.options("/api/helper/ping", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
+    assert bad.headers.get("access-control-allow-origin") is None
+    assert client.post("/api/helper/download", json={"url": "https://evil.example/x.mp4"}).status_code == 400
+
+    def fake_download(url, folder, max_height=1080):
+        (folder / "source.mp4").write_bytes(b"0" * 2048)
+        (folder / "source_title.txt").write_text("My Video", encoding="utf-8")
+        return folder / "source.mp4"
+
+    monkeypatch.setattr(app_module.media, "download", fake_download)
+    res = client.post("/api/helper/download", json={"url": "https://youtu.be/dQw4w9WgXcQ"}, headers={"Origin": origin})
+    assert res.status_code == 200 and len(res.content) == 2048
+    assert res.headers["x-video-title"] == "My%20Video"
