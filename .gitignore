@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.env*.local
+.env
+.vercel
+# desktop app build outputs
+desktop/build_assets/
+desktop/build/
+desktop/dist/
+desktop/dist_installer/
+desktop/viralcut_data/
+desktop/viralcut/settings.env
+__pycache__/

@@ -1,0 +1,109 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { findMoments, hashtagsFor, hookStrength, offlinePlan } from "../lib/analysis.ts";
+import { buildIcs, nextBestTime } from "../lib/ics.ts";
+import { planSchema } from "../lib/planner.ts";
+import { parseTranscript, snapToSentences, transcriptText, wordsBetween } from "../lib/transcript.ts";
+import { youtubeId } from "../lib/youtube.ts";
+
+const SRT = `1
+00:00:01,000 --> 00:00:04,000
+Why is nobody talking about the AI clipping business?
+
+2
+00:00:04,500 --> 00:00:09,000
+Creators pay millions every month for short clips.
+
+3
+00:00:09,500 --> 00:00:12,000
+Here's how it works.
+
+4
+00:00:12,500 --> 00:00:20,000
+You take one long podcast and turn it into ten viral shorts.
+
+5
+00:00:21,000 --> 00:00:30,000
+uh so yeah anyway we were just sitting around and stuff
+`;
+
+const YT_COPY = `0:00
+So today we talk about money.
+0:07
+Why does nobody price their work right?
+1:02:05
+That's the end.`;
+
+test("parses SRT into timed sentences", () => {
+  const s = parseTranscript(SRT);
+  assert.equal(s[0].start, 1);
+  assert.match(s[0].text, /^Why is nobody/);
+  const words = s.flatMap((x) => x.words);
+  assert.ok(words.every((w, i) => i === 0 || words[i - 1].start <= w.start));
+});
+
+test("parses a transcript copied from YouTube, including hour marks", () => {
+  const s = parseTranscript(YT_COPY);
+  assert.equal(s.length, 3);
+  assert.equal(s[1].start, 7);
+  assert.equal(s[2].start, 3725);
+  assert.equal(transcriptText(s).split("\n")[2], "[1:02:05] That's the end.");
+});
+
+test("parses inline timestamps and VTT", () => {
+  assert.equal(parseTranscript("0:00 hello there friend.\n0:05 second line here.")[1].start, 5);
+  const vtt = parseTranscript("WEBVTT\n\n00:00.500 --> 00:02.000\n<v Bob>Hello there world.</v>\n");
+  assert.equal(vtt[0].text, "Hello there world.");
+});
+
+test("hooks with curiosity score higher", () => {
+  assert.ok(hookStrength("Why is nobody talking about this?") > hookStrength("so we were sitting there"));
+});
+
+test("finds the hooky moment and never overlaps", () => {
+  const s = parseTranscript(SRT);
+  const one = findMoments(s, null, 0.25, 1, 8, 20);
+  assert.equal(one[0].start, 1);
+  const many = findMoments(s, null, 0.25, 3, 4, 12).sort((a, b) => a.start - b.start);
+  for (let i = 1; i < many.length; i++) assert.ok(many[i - 1].end <= many[i].start + 0.1 * (many[i].end - many[i].start));
+});
+
+test("offline plan writes posts and hashtags for chosen platforms", () => {
+  const plan = offlinePlan(parseTranscript(SRT), null, 0.25, "Test", { count: 2, minLen: 5, maxLen: 15, platforms: ["tiktok", "youtube"] });
+  assert.ok(plan.clips.length >= 1);
+  assert.deepEqual(Object.keys(plan.clips[0].posts).sort(), ["tiktok", "youtube"]);
+  assert.ok(plan.clips[0].hashtags.youtube!.includes("#shorts"));
+  assert.ok(hashtagsFor("AI clipping business. The AI clipping business pays.").includes("#aiclipping"));
+});
+
+test("snaps clips to sentence boundaries within the length limit", () => {
+  const s = parseTranscript(SRT);
+  const r = snapToSentences(1.3, 11, s, 5, 15);
+  assert.equal(r.start, s[0].start);
+  assert.ok(r.end - r.start <= 15);
+  assert.ok(wordsBetween(s, r.start, r.end).length > 5);
+});
+
+test("schema requires every field and only chosen platforms", () => {
+  const schema = planSchema(["tiktok", "x"]) as any;
+  const clip = schema.properties.clips.items;
+  assert.deepEqual(clip.properties.posts.required, ["tiktok", "x"]);
+  assert.equal(clip.additionalProperties, false);
+  assert.ok(schema.required.includes("hashtag_bank"));
+});
+
+test("youtube link parsing", () => {
+  assert.equal(youtubeId("https://youtu.be/dQw4w9WgXcQ?t=3"), "dQw4w9WgXcQ");
+  assert.equal(youtubeId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=x"), "dQw4w9WgXcQ");
+  assert.equal(youtubeId("https://youtube.com/shorts/abcDEF12345"), "abcDEF12345");
+  assert.equal(youtubeId("https://vimeo.com/1"), null);
+});
+
+test("calendar export and best times", () => {
+  const ics = buildIcs([{ id: "1", clipTitle: "A, b", platform: "TikTok", time: "2026-11-01T13:30:00.000Z", caption: "Hi\nthere" }]);
+  assert.match(ics, /DTSTART:20261101T133000Z/);
+  assert.match(ics, /SUMMARY:Post on TikTok: A\\, b/);
+  const t = nextBestTime("tiktok", new Date(2026, 9, 25, 12));
+  assert.ok([2, 4, 5].includes(t.getDay()) && t.getHours() === 19);
+});
