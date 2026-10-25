@@ -161,12 +161,10 @@ const trimLine = (text: string, limit: number) => {
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 
-/** Template copy for one moment. */
-function offlineClip(c: Candidate, platforms: Platform[]): ClipPlan {
-  const first = c.group[0]?.text ?? "";
-  const title = trimLine(first, 70) || "Best moment";
-  const topic = keywords(c.text, 3).join(" ") || "this";
-  const niche = hashtagsFor(c.text, 7);
+/** Template posts and hashtags for one clip (offline fallback). */
+export function offlineCopy(title: string, text: string, platforms: Platform[]): Pick<ClipPlan, "posts" | "hashtags"> {
+  const topic = keywords(text, 3).join(" ") || "this";
+  const niche = hashtagsFor(text, 7);
   const templates: Record<Platform, string> = {
     tiktok: `${title} 🤯 Watch till the end`,
     instagram: `${title}\n\nThe part nobody talks about when it comes to ${topic}. 👀\nSave this and share it with someone who needs it. 🔁`,
@@ -175,6 +173,16 @@ function offlineClip(c: Candidate, platforms: Platform[]): ClipPlan {
     linkedin: `${title}\n\nOne lesson on ${topic} that changed how I think about it.\n\nWhat's your take? 👇`,
     facebook: `${title} 👀 Would you agree?`,
   };
+  return {
+    posts: Object.fromEntries(platforms.map((p) => [p, templates[p]])),
+    hashtags: Object.fromEntries(platforms.map((p) => [p, [...niche, ...BROAD[p]].slice(0, p === "x" || p === "linkedin" ? 4 : 10)])),
+  };
+}
+
+/** Template copy for one moment. */
+function offlineClip(c: Candidate, platforms: Platform[]): ClipPlan {
+  const first = c.group[0]?.text ?? "";
+  const title = trimLine(first, 70) || "Best moment";
   const labels: Record<string, string> = {
     hook: "strong opening hook", energy: "high vocal energy", emotion: "emotional language", curiosity: "curiosity and numbers",
     pace: "punchy pacing", topical: "on-topic", complete: "ends on a complete thought",
@@ -183,8 +191,7 @@ function offlineClip(c: Candidate, platforms: Platform[]): ClipPlan {
   return {
     start: c.start, end: c.end, title, hook: trimLine(first, 42).toUpperCase(), quote: first,
     why: why ? why.charAt(0).toUpperCase() + why.slice(1) + "." : "Steady, engaging segment.", virality: c.score,
-    posts: Object.fromEntries(platforms.map((p) => [p, templates[p]])),
-    hashtags: Object.fromEntries(platforms.map((p) => [p, [...niche, ...BROAD[p]].slice(0, p === "x" || p === "linkedin" ? 4 : 10)])),
+    ...offlineCopy(title, c.text, platforms),
   };
 }
 

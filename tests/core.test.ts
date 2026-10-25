@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { findMoments, hashtagsFor, hookStrength, offlinePlan } from "../lib/analysis.ts";
 import { buildIcs, nextBestTime } from "../lib/ics.ts";
-import { planSchema } from "../lib/planner.ts";
+import { pickTask, postsTask } from "../lib/planner.ts";
 import { parseTranscript, snapToSentences, transcriptText, wordsBetween } from "../lib/transcript.ts";
 import { youtubeId } from "../lib/youtube.ts";
 
@@ -85,12 +85,15 @@ test("snaps clips to sentence boundaries within the length limit", () => {
   assert.ok(wordsBetween(s, r.start, r.end).length > 5);
 });
 
-test("schema requires every field and only chosen platforms", () => {
-  const schema = planSchema(["tiktok", "x"]) as any;
-  const clip = schema.properties.clips.items;
-  assert.deepEqual(clip.properties.posts.required, ["tiktok", "x"]);
+test("pick step is small; posts step covers only chosen platforms", () => {
+  const pick = pickTask({ transcript: "[0:00] hi", title: "t", count: 3, minLen: 20, maxLen: 60, platforms: ["tiktok"], tone: "Hype", language: "English" }) as any;
+  const clip = pick.schema.properties.clips.items;
   assert.equal(clip.additionalProperties, false);
-  assert.ok(schema.required.includes("hashtag_bank"));
+  assert.ok(!("posts" in clip.properties));
+  assert.ok(pick.schema.required.includes("hashtag_bank"));
+  const posts = postsTask({ title: "t", clip: { title: "c", hook: "h", text: "words" }, platforms: ["tiktok", "x"], tone: "Hype", language: "English" }) as any;
+  assert.deepEqual(posts.schema.properties.posts.required, ["tiktok", "x"]);
+  assert.match(posts.shape, /"x": \["#tag"\]/);
 });
 
 test("youtube link parsing", () => {
@@ -133,7 +136,7 @@ test("provider is picked from whichever key is set", async () => {
 
 test("reads Gemini's streamed answer and Groq's JSON answer", async () => {
   const { streamPlan } = await import("../lib/llm.ts");
-  const req = { transcript: "[0:00] hi there", title: "t", count: 1, minLen: 5, maxLen: 10, platforms: ["tiktok" as const], tone: "Hype", language: "English" };
+  const req = pickTask({ transcript: "[0:00] hi there", title: "t", count: 1, minLen: 5, maxLen: 10, platforms: ["tiktok"], tone: "Hype", language: "English" });
   const realFetch = globalThis.fetch;
   const sse = (chunks: object[]) =>
     new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\r\n\r\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });

@@ -1,57 +1,75 @@
 import { accessDenied } from "@/lib/access";
 import { LlmError, streamPlan } from "@/lib/llm";
+import { pickTask, postsTask, type Task } from "@/lib/planner";
 import { availableProviders } from "@/lib/providers";
-import { PLATFORMS, type ClipRequest, type Platform } from "@/lib/types";
+import { PLATFORMS, type ClipRequest, type Platform, type PostsRequest } from "@/lib/types";
 
 export const maxDuration = 300;
 
 const MAX_TRANSCRIPT = 400_000; // characters, roughly 4-5 hours of speech
 
-function validate(body: Partial<ClipRequest>): ClipRequest | string {
+const platformsOf = (list: unknown) =>
+  (Array.isArray(list) ? list : []).filter((p): p is Platform => (PLATFORMS as readonly string[]).includes(p));
+const text = (v: unknown, max: number, fallback = "") => String(v ?? fallback).slice(0, max);
+
+function pickRequest(body: Partial<ClipRequest>): ClipRequest | string {
   if (typeof body.transcript !== "string" || body.transcript.trim().length < 20) return "The transcript is empty.";
   if (body.transcript.length > MAX_TRANSCRIPT) return "This video is too long. Use a part under about 4 hours.";
-  const platforms = (body.platforms ?? []).filter((p): p is Platform => (PLATFORMS as readonly string[]).includes(p));
+  const platforms = platformsOf(body.platforms);
   if (!platforms.length) return "Choose at least one platform.";
   const count = Math.min(Math.max(Math.round(Number(body.count) || 5), 1), 12);
   const minLen = Math.min(Math.max(Number(body.minLen) || 20, 5), 170);
   const maxLen = Math.min(Math.max(Number(body.maxLen) || 60, minLen + 5), 180);
   return {
-    transcript: body.transcript,
-    title: String(body.title ?? "").slice(0, 200),
-    count, minLen, maxLen, platforms,
-    tone: String(body.tone ?? "Hype").slice(0, 40),
-    language: String(body.language ?? "the same language as the transcript").slice(0, 80),
+    transcript: body.transcript, title: text(body.title, 200), count, minLen, maxLen, platforms,
+    tone: text(body.tone, 40, "Hype"), language: text(body.language, 80, "the same language as the transcript"),
   };
 }
 
-/** Streams NDJSON: {"t":"delta","d":"…"} chunks of the JSON plan, then {"t":"done"} or {"t":"error"}. */
+function postsRequest(body: Partial<PostsRequest>): PostsRequest | string {
+  const platforms = platformsOf(body.platforms);
+  if (!platforms.length) return "Choose at least one platform.";
+  if (!body.clip || typeof body.clip.text !== "string" || !body.clip.text.trim()) return "The clip has no transcript.";
+  return {
+    title: text(body.title, 200),
+    clip: { title: text(body.clip.title, 200), hook: text(body.clip.hook, 120), text: text(body.clip.text, 8000) },
+    platforms, tone: text(body.tone, 40, "Hype"), language: text(body.language, 80, "the same language as the transcript"),
+  };
+}
+
+/**
+ * Streams NDJSON: {"t":"ping"} right away, {"t":"delta","d":"…"} chunks of the JSON answer, then {"t":"done"} or
+ * {"t":"error"}. mode "pick" chooses the clips; mode "posts" writes one clip's posts and hashtags.
+ */
 export async function POST(req: Request) {
   const denied = accessDenied(req);
   if (denied) return denied;
   const providers = availableProviders();
-  if (!providers.length) {
-    return Response.json({ error: "No AI API key is set on the server.", code: "no_key" }, { status: 501 });
-  }
-  let parsed: ClipRequest | string;
+  if (!providers.length) return Response.json({ error: "No AI API key is set on the server.", code: "no_key" }, { status: 501 });
+
+  let task: Task | string;
   try {
-    parsed = validate(await req.json());
+    const body = await req.json();
+    const parsed = body?.mode === "posts" ? postsRequest(body) : pickRequest(body);
+    task = typeof parsed === "string" ? parsed : body?.mode === "posts" ? postsTask(parsed as PostsRequest) : pickTask(parsed as ClipRequest);
   } catch {
-    parsed = "Send the request as JSON.";
+    task = "Send the request as JSON.";
   }
-  if (typeof parsed === "string") return Response.json({ error: parsed }, { status: 400 });
-  const request = parsed;
+  if (typeof task === "string") return Response.json({ error: task }, { status: 400 });
+  const job = task;
 
   const encoder = new TextEncoder();
   const line = (o: unknown) => encoder.encode(JSON.stringify(o) + "\n");
-
   const body = new ReadableStream({
     async start(controller) {
+      controller.enqueue(line({ t: "ping" })); // send headers now so the platform never sees a silent request
+      const keepAlive = setInterval(() => controller.enqueue(line({ t: "ping" })), 15000);
       try {
         let lastError = "";
         for (const provider of providers) {
           let sent = false;
           try {
-            await streamPlan(provider, request, (d) => {
+            await streamPlan(provider, job, (d) => {
               sent = true;
               controller.enqueue(line({ t: "delta", d }));
             }, req.signal);
@@ -65,9 +83,10 @@ export async function POST(req: Request) {
         }
         controller.enqueue(line({ t: "error", error: lastError, code: "api_error" }));
       } finally {
+        clearInterval(keepAlive);
         controller.close();
       }
     },
   });
-  return new Response(body, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
+  return new Response(body, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store, no-transform" } });
 }

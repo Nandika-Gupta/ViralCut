@@ -3,6 +3,8 @@
  * (503) or rate-limited (429). Retry the chosen model, then try other free Flash models before giving up.
  */
 const FALLBACKS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"];
+// Only for local testing against a mock server.
+const BASE = process.env.VIRALCUT_GEMINI_BASE || "https://generativelanguage.googleapis.com";
 const RETRYABLE = new Set([500, 502, 503, 504]);
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -21,7 +23,7 @@ export async function geminiFetch(
   let last: Response | null = null;
   for (const m of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:${action}`, {
+      const res = await fetch(`${BASE}/v1beta/models/${encodeURIComponent(m)}:${action}`, {
         method: "POST",
         signal,
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },

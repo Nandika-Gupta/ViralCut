@@ -1,10 +1,9 @@
-/** Server-only: stream the clip plan from Gemini, Groq or Claude as plain text chunks of one JSON object. */
+/** Server-only: stream one JSON answer from Gemini, Groq or Claude as plain text chunks. */
 import Anthropic from "@anthropic-ai/sdk";
 
 import { geminiFetch } from "./gemini.ts";
-import { SYSTEM, planPrompt, planSchema, shapeHint } from "./planner.ts";
+import { SYSTEM, type Task } from "./planner.ts";
 import type { Provider } from "./providers.ts";
-import type { ClipRequest } from "./types.ts";
 
 export class LlmError extends Error {}
 
@@ -41,13 +40,13 @@ async function* sseData(res: Response): AsyncGenerator<string> {
   }
 }
 
-async function gemini(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSignal): Promise<void> {
+async function gemini(p: Provider, task: Task, emit: Emit, signal: AbortSignal): Promise<void> {
   const { res } = await geminiFetch(
     p.model,
     "streamGenerateContent?alt=sse",
     {
       systemInstruction: { parts: [{ text: SYSTEM }] },
-      contents: [{ role: "user", parts: [{ text: `${planPrompt(req)}\n\n${shapeHint(req.platforms)}` }] }],
+      contents: [{ role: "user", parts: [{ text: `${task.prompt}\n\n${task.shape}` }] }],
       generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768, temperature: 0.7 },
     },
     p.key,
@@ -67,7 +66,7 @@ async function gemini(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSi
   if (finish === "SAFETY" || finish === "PROHIBITED_CONTENT") throw new LlmError("Gemini declined to work with this video.");
 }
 
-async function groq(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSignal): Promise<void> {
+async function groq(p: Provider, task: Task, emit: Emit, signal: AbortSignal): Promise<void> {
   // Groq's JSON mode doesn't stream, so the whole answer arrives at once.
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -77,7 +76,7 @@ async function groq(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSign
       model: p.model,
       messages: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: `${planPrompt(req)}\n\n${shapeHint(req.platforms)}` },
+        { role: "user", content: `${task.prompt}\n\n${task.shape}` },
       ],
       response_format: { type: "json_object" },
       temperature: 0.7,
@@ -93,7 +92,7 @@ async function groq(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSign
   emit(text);
 }
 
-async function claude(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSignal): Promise<void> {
+async function claude(p: Provider, task: Task, emit: Emit, signal: AbortSignal): Promise<void> {
   const client = new Anthropic({ apiKey: p.key });
   try {
     const stream = client.beta.messages.stream(
@@ -101,8 +100,8 @@ async function claude(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSi
         model: p.model,
         max_tokens: 32000,
         system: SYSTEM,
-        messages: [{ role: "user", content: planPrompt(req) }],
-        output_config: { effort: "medium", format: { type: "json_schema", schema: planSchema(req.platforms) } },
+        messages: [{ role: "user", content: task.prompt }],
+        output_config: { effort: "medium", format: { type: "json_schema", schema: task.schema } },
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
       },
@@ -123,8 +122,8 @@ async function claude(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSi
   }
 }
 
-export function streamPlan(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSignal): Promise<void> {
-  if (p.name === "gemini") return gemini(p, req, emit, signal);
-  if (p.name === "groq") return groq(p, req, emit, signal);
-  return claude(p, req, emit, signal);
+export function streamPlan(p: Provider, task: Task, emit: Emit, signal: AbortSignal): Promise<void> {
+  if (p.name === "gemini") return gemini(p, task, emit, signal);
+  if (p.name === "groq") return groq(p, task, emit, signal);
+  return claude(p, task, emit, signal);
 }

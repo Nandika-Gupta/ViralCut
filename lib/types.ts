@@ -43,3 +43,11 @@ export type ClipRequest = {
   tone: string;
   language: string;
 };
+
+export type PostsRequest = {
+  title: string;
+  clip: { title: string; hook: string; text: string };
+  platforms: Platform[];
+  tone: string;
+  language: string;
+};

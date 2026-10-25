@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ClipCard, { type RenderState } from "./ClipCard";
 import { Drive, Dropbox, Kick, Loom, PLATFORM_ICONS, Twitch, Upload, YouTube } from "./icons";
-import { offlinePlan } from "@/lib/analysis";
+import { offlineCopy, offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
 import { buildIcs, nextBestTime, type ScheduledPost } from "@/lib/ics";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
@@ -79,9 +79,9 @@ function slug(s: string) {
 
 class AccessCodeError extends Error {}
 
-async function planWithAI(
+async function askAI<T>(
   body: Record<string, unknown>, accessCode: string, onText: (text: string) => void, signal: AbortSignal,
-): Promise<{ plan: Omit<Plan, "engine">; model: string } | null> {
+): Promise<{ data: T; model: string } | null> {
   const res = await fetch("/api/clips", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-access-code": accessCode },
@@ -90,6 +90,7 @@ async function planWithAI(
   });
   if (res.status === 501) return null; // no API key on the server: use offline scoring
   if (res.status === 401) throw new AccessCodeError("Enter the access code to use ViralCut.");
+  if (res.status === 504) throw new Error("The AI took too long to answer. Try again, or choose fewer clips.");
   if (!res.ok || !res.body) {
     const err = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
     throw new Error(err.error ?? `Server error ${res.status}`);
@@ -115,10 +116,46 @@ async function planWithAI(
     }
   }
   try {
-    return { plan: extractJson<Omit<Plan, "engine">>(text), model };
+    if (!text.trim()) throw new Error("empty");
+    return { data: extractJson<T>(text), model };
   } catch {
     throw new Error("The AI's answer came back incomplete. Try again, or choose fewer clips or platforms.");
   }
+}
+
+type Copy = Pick<ClipPlan, "posts" | "hashtags">;
+const tagOf = (t: string) => "#" + String(t).replace(/^#+/, "").replace(/\s+/g, "");
+
+/** Step 2: write each clip's posts and hashtags with short parallel requests; a failed clip gets template copy. */
+async function writePosts(
+  plan: Plan, sentences: Sentence[], s: Settings, accessCode: string, signal: AbortSignal, onProgress: (done: number) => void,
+): Promise<void> {
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < plan.clips.length) {
+      const clip = plan.clips[next++];
+      const text = wordsBetween(sentences, clip.start, clip.end).map((w) => w.text).join(" ") || clip.quote;
+      let copy: Copy | null = null;
+      try {
+        const result = await askAI<Copy>(
+          { mode: "posts", title: plan.title, clip: { title: clip.title, hook: clip.hook, text }, platforms: s.platforms, tone: s.tone, language: s.outLang },
+          accessCode, () => undefined, signal,
+        );
+        copy = result?.data ?? null;
+      } catch (err) {
+        if ((err as Error).name === "AbortError" || err instanceof AccessCodeError) throw err;
+      }
+      const fallback = offlineCopy(clip.title, text, s.platforms);
+      clip.posts = Object.fromEntries(s.platforms.map((p) => [p, String(copy?.posts?.[p] ?? "") || fallback.posts[p]!]));
+      clip.hashtags = Object.fromEntries(s.platforms.map((p) => {
+        const tags = (Array.isArray(copy?.hashtags?.[p]) ? copy!.hashtags[p]! : []).map(tagOf).filter((t) => t.length > 1);
+        return [p, tags.length ? tags : fallback.hashtags[p]!];
+      }));
+      onProgress(++done);
+    }
+  };
+  await Promise.all([worker(), worker()]);
 }
 
 /** Models sometimes answer "1:23" instead of 83. */
@@ -130,7 +167,7 @@ function toSeconds(v: unknown): number {
 
 function cleanPlan(raw: Omit<Plan, "engine">, sentences: Sentence[], s: Settings, engine: string): Plan {
   const { min, max } = LENGTHS[s.length];
-  const tag = (t: string) => "#" + String(t).replace(/^#+/, "").replace(/\s+/g, "");
+  const tag = tagOf;
   const taken: [number, number][] = [];
   const clips: ClipPlan[] = [];
   for (const c of Array.isArray(raw.clips) ? raw.clips : []) {
@@ -344,7 +381,8 @@ export default function Studio() {
             body: JSON.stringify({ url: link }),
             signal: ctl.signal,
           });
-          const data = await res.json();
+          if (res.status === 504) throw Object.assign(new Error("Reading this video took too long. Paste the transcript under Clip settings and try again."), { askTranscript: true });
+          const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
           if (res.status === 401) throw new AccessCodeError(data.error);
           if (!res.ok) throw Object.assign(new Error(data.error ?? "Couldn't read this video's captions."), { askTranscript: true });
           sentences = data.sentences;
@@ -382,20 +420,27 @@ export default function Studio() {
       let plan: Plan | null = null;
       if (settings.useAi && config?.ai) {
         setStep(3);
-        const result = await planWithAI(
+        const result = await askAI<Omit<Plan, "engine">>(
           {
-            transcript: transcriptText(sentences), title, count: settings.count, minLen: min, maxLen: max,
+            mode: "pick", transcript: transcriptText(sentences), title, count: settings.count, minLen: min, maxLen: max,
             platforms: settings.platforms, tone: settings.tone, language: settings.outLang,
           },
           accessCode,
           (text) => {
             const n = (text.match(/"virality"\s*:/g) ?? []).length;
             setFound(n);
-            setStatus(n ? `Found ${n} potential clip${n > 1 ? "s" : ""} · writing posts & hashtags…` : "AI detection: analyzing video content…");
+            setStatus(n ? `Found ${n} potential clip${n > 1 ? "s" : ""}…` : "AI detection: analyzing video content…");
           },
           ctl.signal,
         );
-        if (result) plan = cleanPlan(result.plan, sentences, settings, result.model || config.model);
+        if (result) {
+          plan = cleanPlan(result.data, sentences, settings, result.model || config.model);
+          if (plan.clips.length) {
+            const total = plan.clips.length;
+            setStatus(`Writing posts & hashtags · 0 of ${total} clips`);
+            await writePosts(plan, sentences, settings, accessCode, ctl.signal, (n) => setStatus(`Writing posts & hashtags · ${n} of ${total} clips`));
+          }
+        }
       }
       if (plan && !plan.clips.length) plan = null; // unusable AI answer: fall back to built-in scoring
       if (!plan) {
