@@ -82,27 +82,27 @@ Tone: ${req.tone}. Write titles, hooks and posts in ${req.language}.`;
   return { prompt, schema, shape };
 }
 
-/** Step 2: posts and hashtags for one clip (run in parallel for all clips). */
+/** Step 2: posts and hashtags for a batch of clips (one request for up to 5 clips, to stay inside free-tier rate limits). */
 export function postsTask(req: PostsRequest): Task {
-  const prompt = `This is a short clip cut from the video "${req.title || "unknown"}".
-Clip title: ${req.clip.title}
-On-screen hook: ${req.clip.hook}
+  const clips = req.clips
+    .map((c, i) => `<clip number="${i + 1}">\nTitle: ${c.title}\nOn-screen hook: ${c.hook}\nTranscript: ${c.text}\n</clip>`)
+    .join("\n\n");
+  const prompt = `These short clips were cut from the video "${req.title || "unknown"}".
 
-<clip_transcript>
-${req.clip.text}
-</clip_transcript>
+${clips}
 
-Write a post and hashtags for each platform:
+For EACH clip, in the same order, write a post and hashtags for each platform:
 ${tagRule(req.platforms)}
 
-Tone: ${req.tone}. Write in ${req.language}. Use only what is said in the clip.`;
-  const schema = obj({
+Tone: ${req.tone}. Write in ${req.language}. Use only what is said in each clip.`;
+  const one = obj({
     posts: obj(Object.fromEntries(req.platforms.map((p) => [p, str]))),
     hashtags: obj(Object.fromEntries(req.platforms.map((p) => [p, strList]))),
   });
+  const schema = obj({ clips: { type: "array", items: one } });
   const posts = req.platforms.map((p) => `"${p}": "post text"`).join(", ");
   const tags = req.platforms.map((p) => `"${p}": ["#tag"]`).join(", ");
-  const shape = `Reply with ONLY one JSON object (no markdown, no commentary) in exactly this shape:
-{ "posts": { ${posts} }, "hashtags": { ${tags} } }`;
+  const shape = `Reply with ONLY one JSON object (no markdown, no commentary) with one entry per clip, in order:
+{ "clips": [ { "posts": { ${posts} }, "hashtags": { ${tags} } } ] }`;
   return { prompt, schema, shape };
 }

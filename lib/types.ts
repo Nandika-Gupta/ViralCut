@@ -31,6 +31,7 @@ export type Plan = {
   full_video: { x_thread: string[]; linkedin: string; instagram: string };
   hashtag_bank: { broad: string[]; niche: string[] };
   engine: string;
+  notice?: string;
 };
 
 export type ClipRequest = {
@@ -46,7 +47,7 @@ export type ClipRequest = {
 
 export type PostsRequest = {
   title: string;
-  clip: { title: string; hook: string; text: string };
+  clips: { title: string; hook: string; text: string }[];
   platforms: Platform[];
   tone: string;
   language: string;

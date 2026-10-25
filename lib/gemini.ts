@@ -16,6 +16,14 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     });
   });
 
+async function retryDelay(res: Response): Promise<number | null> {
+  const header = Number(res.headers.get("retry-after"));
+  if (header > 0) return header;
+  const body = await res.clone().text().catch(() => "");
+  const m = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  return m ? Number(m[1]) : null;
+}
+
 export async function geminiFetch(
   model: string, action: "generateContent" | "streamGenerateContent?alt=sse", body: unknown, key: string, signal?: AbortSignal,
 ): Promise<{ res: Response; model: string }> {
@@ -32,6 +40,14 @@ export async function geminiFetch(
       if (res.ok) return { res, model: m };
       last = res;
       if (res.status === 400 || res.status === 401 || res.status === 403) return { res, model: m }; // bad key or request: retrying won't help
+      if (res.status === 429 && attempt === 0) {
+        // Per-minute free-tier limit: Google says how long to wait. Short waits are worth it; daily limits are not.
+        const wait = await retryDelay(res);
+        if (wait !== null && wait <= 35) {
+          await sleep(wait * 1000 + 500, signal);
+          continue;
+        }
+      }
       if (!RETRYABLE.has(res.status)) break; // 404 (model gone) or 429 (quota): try the next model
       if (attempt === 0) await sleep(2000, signal);
     }

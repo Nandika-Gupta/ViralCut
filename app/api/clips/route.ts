@@ -29,17 +29,19 @@ function pickRequest(body: Partial<ClipRequest>): ClipRequest | string {
 function postsRequest(body: Partial<PostsRequest>): PostsRequest | string {
   const platforms = platformsOf(body.platforms);
   if (!platforms.length) return "Choose at least one platform.";
-  if (!body.clip || typeof body.clip.text !== "string" || !body.clip.text.trim()) return "The clip has no transcript.";
+  const clips = (Array.isArray(body.clips) ? body.clips : []).slice(0, 6)
+    .filter((c) => c && typeof c.text === "string" && c.text.trim())
+    .map((c) => ({ title: text(c.title, 200), hook: text(c.hook, 120), text: text(c.text, 6000) }));
+  if (!clips.length) return "The clips have no transcript.";
   return {
-    title: text(body.title, 200),
-    clip: { title: text(body.clip.title, 200), hook: text(body.clip.hook, 120), text: text(body.clip.text, 8000) },
-    platforms, tone: text(body.tone, 40, "Hype"), language: text(body.language, 80, "the same language as the transcript"),
+    title: text(body.title, 200), clips, platforms,
+    tone: text(body.tone, 40, "Hype"), language: text(body.language, 80, "the same language as the transcript"),
   };
 }
 
 /**
  * Streams NDJSON: {"t":"ping"} right away, {"t":"delta","d":"…"} chunks of the JSON answer, then {"t":"done"} or
- * {"t":"error"}. mode "pick" chooses the clips; mode "posts" writes one clip's posts and hashtags.
+ * {"t":"error"}. mode "pick" chooses the clips; mode "posts" writes posts and hashtags for a batch of clips.
  */
 export async function POST(req: Request) {
   const denied = accessDenied(req);

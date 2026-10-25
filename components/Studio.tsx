@@ -126,36 +126,43 @@ async function askAI<T>(
 type Copy = Pick<ClipPlan, "posts" | "hashtags">;
 const tagOf = (t: string) => "#" + String(t).replace(/^#+/, "").replace(/\s+/g, "");
 
-/** Step 2: write each clip's posts and hashtags with short parallel requests; a failed clip gets template copy. */
+/**
+ * Step 2: write the posts and hashtags, up to 5 clips per request (fewer requests = inside free-tier rate limits).
+ * Clips whose batch fails get template copy, and the reason is returned so the page can say so.
+ */
 async function writePosts(
   plan: Plan, sentences: Sentence[], s: Settings, accessCode: string, signal: AbortSignal, onProgress: (done: number) => void,
-): Promise<void> {
-  let next = 0;
+): Promise<string | null> {
+  let problem: string | null = null;
   let done = 0;
-  const worker = async () => {
-    while (next < plan.clips.length) {
-      const clip = plan.clips[next++];
-      const text = wordsBetween(sentences, clip.start, clip.end).map((w) => w.text).join(" ") || clip.quote;
-      let copy: Copy | null = null;
-      try {
-        const result = await askAI<Copy>(
-          { mode: "posts", title: plan.title, clip: { title: clip.title, hook: clip.hook, text }, platforms: s.platforms, tone: s.tone, language: s.outLang },
-          accessCode, () => undefined, signal,
-        );
-        copy = result?.data ?? null;
-      } catch (err) {
-        if ((err as Error).name === "AbortError" || err instanceof AccessCodeError) throw err;
-      }
-      const fallback = offlineCopy(clip.title, text, s.platforms);
+  for (let i = 0; i < plan.clips.length; i += 5) {
+    const batch = plan.clips.slice(i, i + 5);
+    const texts = batch.map((c) => wordsBetween(sentences, c.start, c.end).map((w) => w.text).join(" ") || c.quote);
+    let copies: Copy[] = [];
+    try {
+      const result = await askAI<{ clips?: Copy[] }>(
+        { mode: "posts", title: plan.title, clips: batch.map((c, k) => ({ title: c.title, hook: c.hook, text: texts[k] })), platforms: s.platforms, tone: s.tone, language: s.outLang },
+        accessCode, () => undefined, signal,
+      );
+      copies = Array.isArray(result?.data?.clips) ? result!.data.clips : [];
+      if (copies.length < batch.length) problem ??= "The AI skipped some clips.";
+    } catch (err) {
+      if ((err as Error).name === "AbortError" || err instanceof AccessCodeError) throw err;
+      problem ??= (err as Error).message;
+    }
+    batch.forEach((clip, k) => {
+      const copy = copies[k];
+      const fallback = offlineCopy(clip.title, texts[k], s.platforms);
       clip.posts = Object.fromEntries(s.platforms.map((p) => [p, String(copy?.posts?.[p] ?? "") || fallback.posts[p]!]));
       clip.hashtags = Object.fromEntries(s.platforms.map((p) => {
         const tags = (Array.isArray(copy?.hashtags?.[p]) ? copy!.hashtags[p]! : []).map(tagOf).filter((t) => t.length > 1);
         return [p, tags.length ? tags : fallback.hashtags[p]!];
       }));
-      onProgress(++done);
-    }
-  };
-  await Promise.all([worker(), worker()]);
+    });
+    done += batch.length;
+    onProgress(done);
+  }
+  return problem;
 }
 
 /** Models sometimes answer "1:23" instead of 83. */
@@ -173,7 +180,7 @@ function cleanPlan(raw: Omit<Plan, "engine">, sentences: Sentence[], s: Settings
   for (const c of Array.isArray(raw.clips) ? raw.clips : []) {
     const snapped = snapToSentences(toSeconds(c.start), toSeconds(c.end), sentences, min, max);
     const { start, end } = snapped;
-    if (end <= start) continue;
+    if (end - start < Math.max(5, min * 0.5)) continue; // too short to stand alone (e.g. cut off at the end of the video)
     if (taken.some(([a, b]) => Math.min(end, b) - Math.max(start, a) > 0.25 * Math.min(end - start, b - a))) continue;
     taken.push([start, end]);
     clips.push({
@@ -438,7 +445,8 @@ export default function Studio() {
           if (plan.clips.length) {
             const total = plan.clips.length;
             setStatus(`Writing posts & hashtags · 0 of ${total} clips`);
-            await writePosts(plan, sentences, settings, accessCode, ctl.signal, (n) => setStatus(`Writing posts & hashtags · ${n} of ${total} clips`));
+            const problem = await writePosts(plan, sentences, settings, accessCode, ctl.signal, (n) => setStatus(`Writing posts & hashtags · ${n} of ${total} clips`));
+            if (problem) plan.notice = `Some posts and hashtags are basic templates because the AI couldn't write them: ${problem}`;
           }
         }
       }
@@ -737,6 +745,7 @@ export default function Studio() {
                   <span className="eyebrow">{plan.clips.length} viral shorts</span>
                   <h2>{project.title}</h2>
                   <p>{plan.summary}</p>
+                  {plan.notice && <p className="notice">⚠️ {plan.notice}</p>}
                   <p className="fineprint">{formatTime(project.duration)} video · {project.engine} · transcript: {project.transcriptSource}</p>
                 </div>
                 {allRendered && (

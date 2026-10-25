@@ -23,6 +23,7 @@ const scoreClass = (s: number) => (s >= 85 ? "hot" : s >= 70 ? "good" : "ok");
 
 export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onSchedule, fileName }: Props) {
   const [platform, setPlatform] = useState<Platform>(platforms[0]);
+  const [playing, setPlaying] = useState(false);
   const text = clip.posts[platform] ?? "";
   const tags = clip.hashtags[platform] ?? [];
   const full = `${text}\n\n${tags.join(" ")}`.trim();
@@ -41,9 +42,18 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
         </div>
       </>
     );
+  } else if (videoId && playing) {
+    const src = `https://www.youtube.com/embed/${videoId}?start=${Math.floor(clip.start)}&end=${Math.ceil(clip.end)}&autoplay=1&rel=0&playsinline=1`;
+    screen = <iframe src={src} title={clip.title} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />;
   } else if (videoId) {
-    const src = `https://www.youtube-nocookie.com/embed/${videoId}?start=${Math.floor(clip.start)}&end=${Math.ceil(clip.end)}&rel=0&modestbranding=1&playsinline=1`;
-    screen = <iframe src={src} title={clip.title} loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowFullScreen />;
+    screen = (
+      <button type="button" className="yt-thumb" onClick={() => setPlaying(true)} aria-label={`Play ${clip.title}`}>
+        <img src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
+        <span className="hook-preview">{clip.hook}</span>
+        <span className="play">▶</span>
+        <span className="play-note">Preview this moment</span>
+      </button>
+    );
   } else {
     screen = <div className="placeholder">{render?.error ?? "Add the video file to render this short."}</div>;
   }

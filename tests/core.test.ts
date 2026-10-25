@@ -91,8 +91,9 @@ test("pick step is small; posts step covers only chosen platforms", () => {
   assert.equal(clip.additionalProperties, false);
   assert.ok(!("posts" in clip.properties));
   assert.ok(pick.schema.required.includes("hashtag_bank"));
-  const posts = postsTask({ title: "t", clip: { title: "c", hook: "h", text: "words" }, platforms: ["tiktok", "x"], tone: "Hype", language: "English" }) as any;
-  assert.deepEqual(posts.schema.properties.posts.required, ["tiktok", "x"]);
+  const posts = postsTask({ title: "t", clips: [{ title: "c", hook: "h", text: "words" }, { title: "d", hook: "i", text: "more" }], platforms: ["tiktok", "x"], tone: "Hype", language: "English" }) as any;
+  assert.deepEqual(posts.schema.properties.clips.items.properties.posts.required, ["tiktok", "x"]);
+  assert.match(posts.prompt, /<clip number="2">/);
   assert.match(posts.shape, /"x": \["#tag"\]/);
 });
 
