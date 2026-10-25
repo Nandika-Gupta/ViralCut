@@ -107,3 +107,58 @@ test("calendar export and best times", () => {
   const t = nextBestTime("tiktok", new Date(2026, 9, 25, 12));
   assert.ok([2, 4, 5].includes(t.getDay()) && t.getHours() === 19);
 });
+
+test("extracts JSON from fenced or chatty model answers", async () => {
+  const { extractJson } = await import("../lib/json.ts");
+  assert.deepEqual(extractJson('{"a":1}'), { a: 1 });
+  assert.deepEqual(extractJson('```json\n{"a":2}\n```'), { a: 2 });
+  assert.deepEqual(extractJson('Here you go: {"a":3} Enjoy!'), { a: 3 });
+  assert.throws(() => extractJson("no json here"));
+});
+
+test("provider is picked from whichever key is set", async () => {
+  const { activeProvider } = await import("../lib/providers.ts");
+  const saved = { ...process.env };
+  for (const k of ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY", "VIRALCUT_PROVIDER", "VIRALCUT_MODEL"]) delete process.env[k];
+  assert.equal(activeProvider(), null);
+  process.env.GROQ_API_KEY = "g";
+  assert.equal(activeProvider()?.name, "groq");
+  process.env.GEMINI_API_KEY = "x";
+  assert.equal(activeProvider()?.name, "gemini");
+  assert.equal(activeProvider()?.model, "gemini-flash-latest");
+  process.env.VIRALCUT_PROVIDER = "groq";
+  assert.equal(activeProvider()?.name, "groq");
+  process.env = saved;
+});
+
+test("reads Gemini's streamed answer and Groq's JSON answer", async () => {
+  const { streamPlan } = await import("../lib/llm.ts");
+  const req = { transcript: "[0:00] hi there", title: "t", count: 1, minLen: 5, maxLen: 10, platforms: ["tiktok" as const], tone: "Hype", language: "English" };
+  const realFetch = globalThis.fetch;
+  const sse = (chunks: object[]) =>
+    new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\r\n\r\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });
+  try {
+    let sent: any;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      sent = JSON.parse(init.body);
+      return sse([
+        { candidates: [{ content: { parts: [{ text: "thinking", thought: true }, { text: '{"title":' }] } }] },
+        { candidates: [{ content: { parts: [{ text: '"x"}' }] }, finishReason: "STOP" }] },
+      ]);
+    }) as typeof fetch;
+    let out = "";
+    await streamPlan({ name: "gemini", label: "Gemini", model: "m", key: "k" }, req, (t) => (out += t), new AbortController().signal);
+    assert.equal(out, '{"title":"x"}');
+    assert.equal(sent.generationConfig.responseMimeType, "application/json");
+
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: '{"ok":1}' }, finish_reason: "stop" }] })) as typeof fetch;
+    out = "";
+    await streamPlan({ name: "groq", label: "Groq", model: "m", key: "k" }, req, (t) => (out += t), new AbortController().signal);
+    assert.equal(out, '{"ok":1}');
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: "API key not valid" } }), { status: 400 })) as typeof fetch;
+    await assert.rejects(streamPlan({ name: "gemini", label: "Gemini", model: "m", key: "k" }, req, () => {}, new AbortController().signal), /API key is invalid/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

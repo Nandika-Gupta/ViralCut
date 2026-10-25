@@ -10,7 +10,7 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 |---|---|
 | **Paste a link** | YouTube links are read from their captions on the server. Dropbox and direct `.mp4` links are downloaded in the browser. |
 | **Upload a video** | Whisper transcribes it right in your browser (WebGPU when available). The video never leaves your computer. |
-| **AI clip detection** | Claude reads the transcript and picks the moments most likely to go viral, each with a virality score, hook, title and the reason it works. Without an API key, built-in scoring runs instead. |
+| **AI clip detection** | Gemini, Groq or Claude reads the transcript and picks the moments most likely to go viral, each with a virality score, hook, title and the reason it works. Without an API key, built-in scoring runs instead. |
 | **Face-tracking reframe** | MediaPipe face detection keeps the speaker centred in a 9:16 frame. Blurred-background and center-crop modes are also available. |
 | **Animated captions** | Word-by-word captions (bold pop, karaoke, neon, minimal) plus a hook title for the first 3 seconds, rendered to MP4/WebM in the browser. |
 | **Posts & hashtags** | Platform-native posts and hashtags for every clip, an X thread, LinkedIn and Instagram posts for the full video, and a hashtag bank. |
@@ -19,18 +19,21 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 ## Deploy on Vercel
 
 1. Import this repository at [vercel.com/new](https://vercel.com/new). The framework is detected as **Next.js**, so no settings are needed.
-2. Under **Environment Variables**, add:
-   - `ANTHROPIC_API_KEY`: your key from [console.anthropic.com](https://console.anthropic.com) (needed for AI clip picking and posts)
-   - `VIRALCUT_ACCESS_CODE` *(recommended)*: a code visitors must enter, so strangers can't spend your Claude credits
+2. Under **Environment Variables**, add **one** AI key:
+   - `GEMINI_API_KEY`: **free** from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Recommended, because it handles long videos.
+   - or `GROQ_API_KEY`: **free** from [console.groq.com/keys](https://console.groq.com/keys). Very fast, but its free tier only fits transcripts of about 30 minutes.
+   - or `ANTHROPIC_API_KEY`: paid, from [console.anthropic.com](https://console.anthropic.com).
+
+   Also add `VIRALCUT_ACCESS_CODE` *(recommended)*: a code visitors must enter, so strangers can't use up your API quota.
 3. Click **Deploy**.
 
-`/api/clips` streams Claude's answer and may run for up to 300 seconds (`maxDuration`). That's within Vercel's limits with Fluid compute, which is on by default.
+`/api/clips` streams the AI's answer and may run for up to 300 seconds (`maxDuration`). That's within Vercel's limits with Fluid compute, which is on by default.
 
 ## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local   # add your ANTHROPIC_API_KEY
+cp .env.example .env.local   # add your GEMINI_API_KEY (free)
 npm run dev                  # http://localhost:3000
 npm test                     # unit tests
 ```
@@ -39,14 +42,14 @@ npm test                     # unit tests
 
 ```
 YouTube link ──► /api/transcript (captions) ─┐
-                                              ├─► /api/clips (Claude: clips, posts, hashtags) ─► results
+                                              ├─► /api/clips (Gemini/Groq/Claude: clips, posts, hashtags) ─► results
 Upload / .mp4 ─► Whisper in browser ─────────┘                                                 │
                                                                      canvas + MediaRecorder ◄──┘
                                                        (face tracking, captions, hook) ─► 9:16 MP4
 ```
 
 - `app/api/transcript`: reads YouTube captions without an API key. YouTube sometimes refuses requests from cloud servers. When that happens, the site asks for the transcript (YouTube: **…more → Show transcript**) or the video file.
-- `app/api/clips`: Claude (`claude-opus-5-5` by default, override with `VIRALCUT_MODEL`) with structured JSON output, streamed to the browser.
+- `app/api/clips` + `lib/llm.ts`: asks the AI service you configured for a JSON plan and streams it to the browser. The service is picked from whichever key is set (Gemini, then Groq, then Anthropic), or with `VIRALCUT_PROVIDER`. Default models: `gemini-flash-latest`, `llama-3.3-70b-versatile`, `claude-opus-5-5` (override with `VIRALCUT_MODEL`).
 - `lib/render.ts`: the in-browser renderer. Clips render in real time, so keep the tab open. Chrome/Edge/Safari export MP4; Firefox exports WebM.
 - `public/workers/whisper.js`: speech recognition (transformers.js + `Xenova/whisper-base`, downloaded once by the browser, about 150 MB).
 

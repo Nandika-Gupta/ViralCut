@@ -1,7 +1,5 @@
-/** Server-only: the Claude prompt and JSON schema for picking clips and writing posts. */
+/** Server-only: the prompt and JSON schema for picking clips and writing posts (shared by every AI service). */
 import type { ClipRequest, Platform } from "./types.ts";
-
-export const MODEL = process.env.VIRALCUT_MODEL || "claude-opus-5-5";
 
 const PLATFORM_RULES: Record<Platform, string> = {
   tiktok: "TikTok caption: punchy, under 150 characters, conversational, 1-2 emojis max, no hashtags in the text",
@@ -82,4 +80,22 @@ ${rules}
 
 Also write posts promoting the full video (an X thread of 5-7 tweets, a LinkedIn post, an Instagram caption) and a hashtag bank \
 of broad and niche tags for the whole video.`;
+}
+
+/** Spelled-out JSON shape for services that don't take a strict schema (Gemini JSON mode, Groq). */
+export function shapeHint(platforms: Platform[]): string {
+  const posts = platforms.map((p) => `"${p}": "post text"`).join(", ");
+  const tags = platforms.map((p) => `"${p}": ["#tag"]`).join(", ");
+  return `Reply with ONLY one JSON object (no markdown, no commentary) in exactly this shape:
+{
+  "title": "video title or topic",
+  "summary": "2-3 sentences on what the video is about and who it's for",
+  "clips": [
+    { "start": 0, "end": 0, "title": "…", "hook": "…", "quote": "…", "why": "…", "virality": 0,
+      "posts": { ${posts} },
+      "hashtags": { ${tags} } }
+  ],
+  "full_video": { "x_thread": ["tweet 1", "tweet 2"], "linkedin": "…", "instagram": "…" },
+  "hashtag_bank": { "broad": ["#…"], "niche": ["#…"] }
+}`;
 }

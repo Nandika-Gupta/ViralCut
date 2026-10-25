@@ -21,7 +21,7 @@ export default function Features() {
                 </div>
               </div>
               <h3>AI-powered clip detection</h3>
-              <p>Claude reads the full transcript and scores every moment for hooks, stories, emotion, numbers and payoff, then picks the clips most likely to go viral.</p>
+              <p>AI (Gemini, Groq or Claude) reads the full transcript and scores every moment for hooks, stories, emotion, numbers and payoff, then picks the clips most likely to go viral.</p>
             </article>
 
             <article className="feature">
@@ -111,7 +111,7 @@ export default function Features() {
         <div className="wrap">
           <div className="section-head"><span className="eyebrow">FAQ</span><h2>Good to know</h2></div>
           <div className="faq">
-            <details><summary>Does my video get uploaded anywhere?</summary><p>No. Uploaded videos are transcribed and rendered inside your browser. Only the transcript text is sent to Claude to pick clips and write posts.</p></details>
+            <details><summary>Does my video get uploaded anywhere?</summary><p>No. Uploaded videos are transcribed and rendered inside your browser. Only the transcript text is sent to the AI service (Gemini, Groq or Claude) to pick clips and write posts.</p></details>
             <details><summary>Why do YouTube links show previews instead of MP4 files?</summary><p>Websites can&apos;t download YouTube videos. ViralCut reads the captions, finds the clips and writes the posts; to export captioned MP4s, add the video file and every clip renders in your browser.</p></details>
             <details><summary>What about Twitch, Kick, Google Drive or Loom?</summary><p>Download the video from that site, then use Upload Video. Dropbox links and direct .mp4 links work as they are.</p></details>
             <details><summary>How long does rendering take?</summary><p>Clips render in real time, so a 45-second short takes about 45 seconds. Keep the tab open while it works. The first upload also downloads the speech model once (about 150 MB).</p></details>

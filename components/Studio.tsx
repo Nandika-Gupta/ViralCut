@@ -8,6 +8,7 @@ import { offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
 import { buildIcs, nextBestTime, type ScheduledPost } from "@/lib/ics";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
+import { extractJson } from "@/lib/json";
 import { formatTime, parseTranscript, snapToSentences, spreadWords, transcriptText, wordsBetween, wordsToSentences } from "@/lib/transcript";
 import { PLATFORMS, PLATFORM_LABELS, type ClipPlan, type Plan, type Platform, type Sentence, type Word } from "@/lib/types";
 
@@ -74,11 +75,11 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "clip";
 }
 
-/* ---------------- Claude ---------------- */
+/* ---------------- AI planning ---------------- */
 
 class AccessCodeError extends Error {}
 
-async function planWithClaude(
+async function planWithAI(
   body: Record<string, unknown>, accessCode: string, onText: (text: string) => void, signal: AbortSignal,
 ): Promise<{ plan: Omit<Plan, "engine">; model: string } | null> {
   const res = await fetch("/api/clips", {
@@ -109,14 +110,14 @@ async function planWithClaude(
       if (msg.t === "delta" && msg.d) {
         text += msg.d;
         onText(text);
-      } else if (msg.t === "error") throw new Error(msg.error ?? "Claude failed.");
+      } else if (msg.t === "error") throw new Error(msg.error ?? "The AI request failed.");
       else if (msg.t === "done") model = msg.model ?? "";
     }
   }
   try {
-    return { plan: JSON.parse(text), model };
+    return { plan: extractJson<Omit<Plan, "engine">>(text), model };
   } catch {
-    throw new Error("Claude's answer was cut off. Try again with fewer clips or platforms.");
+    throw new Error("The AI's answer came back incomplete. Try again, or choose fewer clips or platforms.");
   }
 }
 
@@ -125,25 +126,30 @@ function cleanPlan(raw: Omit<Plan, "engine">, sentences: Sentence[], s: Settings
   const tag = (t: string) => "#" + String(t).replace(/^#+/, "").replace(/\s+/g, "");
   const taken: [number, number][] = [];
   const clips: ClipPlan[] = [];
-  for (const c of raw.clips ?? []) {
+  for (const c of Array.isArray(raw.clips) ? raw.clips : []) {
     const snapped = snapToSentences(Number(c.start) || 0, Number(c.end) || 0, sentences, min, max);
     const { start, end } = snapped;
     if (end <= start) continue;
     if (taken.some(([a, b]) => Math.min(end, b) - Math.max(start, a) > 0.25 * Math.min(end - start, b - a))) continue;
     taken.push([start, end]);
     clips.push({
-      ...c,
+      title: String(c.title ?? "Untitled clip"), hook: String(c.hook ?? ""), quote: String(c.quote ?? ""), why: String(c.why ?? ""),
+      posts: Object.fromEntries(Object.entries(c.posts ?? {}).map(([k, v]) => [k, String(v ?? "")])),
       start, end,
       virality: Math.max(0, Math.min(100, Math.round(Number(c.virality) || 0))),
-      hashtags: Object.fromEntries(Object.entries(c.hashtags ?? {}).map(([k, v]) => [k, (v ?? []).map(tag).filter((t) => t.length > 1)])),
+      hashtags: Object.fromEntries(Object.entries(c.hashtags ?? {}).map(([k, v]) => [k, (Array.isArray(v) ? v : []).map(tag).filter((t) => t.length > 1)])),
     });
   }
   return {
     title: raw.title || "Your video",
     summary: raw.summary || "",
     clips: clips.sort((a, b) => b.virality - a.virality),
-    full_video: raw.full_video ?? { x_thread: [], linkedin: "", instagram: "" },
-    hashtag_bank: { broad: (raw.hashtag_bank?.broad ?? []).map(tag), niche: (raw.hashtag_bank?.niche ?? []).map(tag) },
+    full_video: {
+      x_thread: Array.isArray(raw.full_video?.x_thread) ? raw.full_video.x_thread.map(String) : [],
+      linkedin: String(raw.full_video?.linkedin ?? ""),
+      instagram: String(raw.full_video?.instagram ?? ""),
+    },
+    hashtag_bank: { broad: (Array.isArray(raw.hashtag_bank?.broad) ? raw.hashtag_bank.broad : []).map(tag), niche: (Array.isArray(raw.hashtag_bank?.niche) ? raw.hashtag_bank.niche : []).map(tag) },
     engine,
   };
 }
@@ -369,7 +375,7 @@ export default function Studio() {
       let plan: Plan | null = null;
       if (settings.useAi && config?.ai) {
         setStep(3);
-        const result = await planWithClaude(
+        const result = await planWithAI(
           {
             transcript: transcriptText(sentences), title, count: settings.count, minLen: min, maxLen: max,
             platforms: settings.platforms, tone: settings.tone, language: settings.outLang,
@@ -382,11 +388,11 @@ export default function Studio() {
           },
           ctl.signal,
         );
-        if (result) plan = cleanPlan(result.plan, sentences, settings, `Claude (${result.model || config.model})`);
+        if (result) plan = cleanPlan(result.plan, sentences, settings, result.model || config.model);
       }
       if (!plan) {
         plan = offlinePlan(sentences, loudness, LOUDNESS_HOP, title, { count: settings.count, minLen: min, maxLen: max, platforms: settings.platforms });
-        if (!config?.ai) plan.engine = "Offline scoring (add ANTHROPIC_API_KEY for Claude)";
+        if (!config?.ai) plan.engine = "Offline scoring (add a GEMINI_API_KEY for AI)";
       }
       if (!plan.clips.length) throw new Error("Couldn't find any clips of that length. Try a shorter clip length.");
       setFound(plan.clips.length);
@@ -638,7 +644,7 @@ export default function Studio() {
                 <span className="label">Options</span>
                 <label className="check"><input type="checkbox" checked={s.hook} onChange={(e) => setS({ ...s, hook: e.target.checked })} /> Hook title in first 3s</label>
                 <label className="check"><input type="checkbox" checked={s.hd} onChange={(e) => setS({ ...s, hd: e.target.checked })} /> 1080p export (slower)</label>
-                <label className="check"><input type="checkbox" checked={s.useAi} disabled={!config?.ai} onChange={(e) => setS({ ...s, useAi: e.target.checked })} /> Use Claude AI {config && !config.ai && "(not set up)"}</label>
+                <label className="check"><input type="checkbox" checked={s.useAi} disabled={!config?.ai} onChange={(e) => setS({ ...s, useAi: e.target.checked })} /> Use AI for clips & posts {config?.ai ? `(${config.model.split(" · ")[0]})` : "(not set up)"}</label>
               </div>
               {config?.accessCode && (
                 <div className="opt">
