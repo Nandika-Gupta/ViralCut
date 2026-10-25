@@ -22,7 +22,7 @@ export function buildIcs(posts: ScheduledPost[]): string {
 
 /** Typical engagement peaks (local time): hour, minute, preferred weekdays (0 = Sunday). */
 const BEST: Record<string, [number, number, number[]]> = {
-  tiktok: [19, 0, [2, 4, 5]], instagram: [11, 0, [1, 3, 5]], youtube: [15, 0, [4, 5, 6]],
+  instagram: [11, 0, [1, 3, 5]], youtube: [15, 0, [4, 5, 6]],
   x: [9, 0, [2, 3, 4]], linkedin: [8, 30, [2, 3, 4]], facebook: [13, 0, [3, 4, 5]],
 };
 

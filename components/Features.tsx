@@ -1,4 +1,4 @@
-import { Discord, Instagram, Logo, Sparkle, TikTok, Twitch, XLogo, YouTube } from "./icons";
+import { Facebook, Instagram, Logo, Sparkle, XLogo, YouTube } from "./icons";
 
 export default function Features() {
   return (
@@ -52,7 +52,7 @@ export default function Features() {
                     <path d="M0 85 C 50 85, 50 150, 100 150" stroke="#3e6bff" strokeWidth="1.5" fill="none" />
                   </svg>
                   <div className="outs">
-                    <span className="mini-short"><i /> <TikTok size={14} /> TikTok</span>
+                    <span className="mini-short"><i /> <Facebook size={14} /> FB Reels</span>
                     <span className="mini-short"><i /> <YouTube size={14} /> YT Short</span>
                     <span className="mini-short"><i /> <Instagram size={14} /> Reels</span>
                   </div>
@@ -71,19 +71,19 @@ export default function Features() {
             <article className="feature">
               <div className="visual">
                 <div className="posts-demo">
-                  <div><TikTok size={18} /> <span>I lost customers by being TOO cheap 😳 <span style={{ color: "#a9c2ff" }}>#sidehustle #pricing</span></span></div>
+                  <div><YouTube size={18} /> <span>I lost customers by being TOO cheap 😳 <span style={{ color: "#a9c2ff" }}>#sidehustle #pricing</span></span></div>
                   <div><XLogo size={18} /> <span>Underpricing isn&apos;t humble. It&apos;s a trust problem.</span></div>
                   <div><Instagram size={18} /> <span>Save this before you price your first offer 🔁</span></div>
                 </div>
               </div>
               <h3>Viral posts & hashtags</h3>
-              <p>Platform-native captions for TikTok, Reels, Shorts, X, LinkedIn and Facebook, an X thread for the full video, and a hashtag bank.</p>
+              <p>Platform-native captions for YouTube Shorts, Instagram Reels, Facebook, X and LinkedIn, an X thread for the full video, and a hashtag bank.</p>
             </article>
 
             <article className="feature">
               <div className="visual">
                 <div className="social-row">
-                  <span><Instagram size={30} /></span><span><YouTube size={30} /></span><span><TikTok size={30} /></span><span><Discord size={30} /></span><span><Twitch size={30} /></span>
+                  <span><YouTube size={30} /></span><span><Instagram size={30} /></span><span><Facebook size={30} /></span><span><XLogo size={30} /></span>
                 </div>
               </div>
               <h3>Social media scheduling</h3>

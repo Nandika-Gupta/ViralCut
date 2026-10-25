@@ -6,9 +6,6 @@ const base = (size = 20, props: P) => ({ width: size, height: size, viewBox: "0 
 export const YouTube = ({ size, ...p }: P) => (
   <svg {...base(size, p)}><rect x="1.5" y="5" width="21" height="14" rx="4" fill="#FF0033" /><path d="M10 9.2v5.6l5-2.8z" fill="#fff" /></svg>
 );
-export const TikTok = ({ size, ...p }: P) => (
-  <svg {...base(size, p)}><rect width="24" height="24" rx="6" fill="#000" /><path d="M14.6 5.5c.4 1.6 1.5 2.7 3.1 2.9v2.4a5.7 5.7 0 0 1-3.1-1v4.6a4.3 4.3 0 1 1-4.3-4.3v2.4a1.9 1.9 0 1 0 1.9 1.9V5.5z" fill="#fff" /><path d="M14.6 5.5c.4 1.6 1.5 2.7 3.1 2.9" stroke="#25F4EE" strokeWidth=".8" fill="none" /></svg>
-);
 export const Instagram = ({ size, ...p }: P) => (
   <svg {...base(size, p)}>
     <defs><linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="#FEDA75" /><stop offset=".35" stopColor="#FA7E1E" /><stop offset=".6" stopColor="#D62976" /><stop offset="1" stopColor="#4F5BD5" /></linearGradient></defs>
@@ -56,4 +53,4 @@ export const Logo = ({ size = 30, ...p }: P) => (
   </svg>
 );
 
-export const PLATFORM_ICONS = { tiktok: TikTok, instagram: Instagram, youtube: YouTube, x: XLogo, linkedin: LinkedIn, facebook: Facebook };
+export const PLATFORM_ICONS = { instagram: Instagram, youtube: YouTube, x: XLogo, linkedin: LinkedIn, facebook: Facebook };

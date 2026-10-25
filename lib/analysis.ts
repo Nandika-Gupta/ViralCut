@@ -147,7 +147,6 @@ export function findMoments(
 }
 
 const BROAD: Record<Platform, string[]> = {
-  tiktok: ["#fyp", "#foryou", "#viral"],
   instagram: ["#reels", "#explorepage", "#viralreels"],
   youtube: ["#shorts", "#youtubeshorts"],
   x: [],
@@ -166,7 +165,6 @@ export function offlineCopy(title: string, text: string, platforms: Platform[]):
   const topic = keywords(text, 3).join(" ") || "this";
   const niche = hashtagsFor(text, 7);
   const templates: Record<Platform, string> = {
-    tiktok: `${title} 🤯 Watch till the end`,
     instagram: `${title}\n\nThe part nobody talks about when it comes to ${topic}. 👀\nSave this and share it with someone who needs it. 🔁`,
     youtube: title.length > 68 ? title.slice(0, 66) + "…" : title,
     x: `${title}\n\nThe most underrated take on ${topic} 👇`,

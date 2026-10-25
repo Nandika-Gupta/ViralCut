@@ -2,7 +2,7 @@
 
 **Turn one long video into viral shorts automatically.** Paste a YouTube link or upload a video. ViralCut finds the best
 moments, adds captions, reframes them to 9:16 around the speaker's face, and writes ready-to-post captions and hashtags
-for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each one goes out.
+for YouTube Shorts, Instagram Reels, Facebook, X and LinkedIn. You can also plan when each one goes out.
 
 ## Features
 
@@ -15,7 +15,7 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 | **Animated captions** | Word-by-word captions (bold pop, karaoke, neon, minimal) plus a hook title for the first 3 seconds, rendered to MP4/WebM in the browser. |
 | **Posts & hashtags** | Platform-native posts and hashtags for every clip, an X thread, LinkedIn and Instagram posts for the full video, and a hashtag bank. |
 | **Post to YouTube** | One click uploads a finished short to your YouTube channel (YouTube Data API, sign in with Google). Needs `GOOGLE_CLIENT_ID`. |
-| **Post to TikTok, Instagram, Facebook, X, LinkedIn** | On phones, the share sheet opens with the video attached. On computers, the video downloads, the caption is copied, and the platform's upload page opens (X and LinkedIn with the caption pre-filled). |
+| **Post to Instagram, Facebook, X, LinkedIn** | On phones, the share sheet opens with the video attached. On computers, the video downloads, the caption is copied, and the platform's upload page opens (X and LinkedIn with the caption pre-filled). |
 | **Scheduling** | Plan each short at the platform's peak time and export the schedule to your calendar (`.ics`). |
 
 ## Deploy on Vercel
@@ -40,7 +40,7 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 
 Google keeps videos uploaded by unreviewed apps **private**. Switch them to Public in YouTube Studio, or apply for the
 [YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to post publicly straight away.
-Facebook, Instagram, TikTok and X only allow direct API posting for apps they have reviewed (X's API is paid), so those
+Facebook, Instagram and X only allow direct API posting for apps they have reviewed (X's API is paid), so those
 buttons use the share sheet or the upload page instead.
 
 ## Run locally

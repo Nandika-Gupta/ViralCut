@@ -46,7 +46,7 @@ type Settings = {
   layout: Layout; captions: CaptionStyle; hook: boolean; hd: boolean; useAi: boolean;
 };
 const DEFAULTS: Settings = {
-  count: 5, length: 1, platforms: ["tiktok", "instagram", "youtube", "x"], tone: "Hype", outLang: OUTPUT_LANGS[0][0],
+  count: 5, length: 1, platforms: ["youtube", "instagram", "facebook", "x"], tone: "Hype", outLang: OUTPUT_LANGS[0][0],
   spokenLang: "", layout: "auto", captions: "bold", hook: true, hd: false, useAi: true,
 };
 
@@ -280,8 +280,12 @@ export default function Studio() {
   useEffect(() => {
     fetch("/api/config").then((r) => r.json()).then(setConfig).catch(() => setConfig({ ai: false, model: "", accessCode: false }));
     setAccessCode(store.get("viralcut-code", ""));
-    setS({ ...DEFAULTS, ...store.get<Partial<Settings>>("viralcut-settings", {}) });
-    setHistory(store.get<Project[]>("viralcut-projects", []));
+    const saved = { ...DEFAULTS, ...store.get<Partial<Settings>>("viralcut-settings", {}) };
+    const valid = (list: unknown): Platform[] => (Array.isArray(list) ? list : []).filter((p): p is Platform => (PLATFORMS as readonly string[]).includes(p));
+    saved.platforms = valid(saved.platforms).length ? valid(saved.platforms) : DEFAULTS.platforms;
+    setS(saved);
+    // Older projects may list platforms that were removed (e.g. TikTok).
+    setHistory(store.get<Project[]>("viralcut-projects", []).map((h) => ({ ...h, platforms: valid(h.platforms).length ? valid(h.platforms) : DEFAULTS.platforms })));
   }, []);
   useEffect(() => store.set("viralcut-settings", s), [s]);
   useEffect(() => {
@@ -592,7 +596,7 @@ export default function Studio() {
   }
 
   /* ---- post to other platforms ---- */
-  // Facebook, Instagram, TikTok and X only allow direct API posting for apps they have reviewed (X's API is paid),
+  // Facebook, Instagram and X only allow direct API posting for apps they have reviewed (X's API is paid),
   // so: phones get the share sheet with the video attached; computers get the file, the caption on the clipboard,
   // and the platform's upload page (X and LinkedIn with the caption pre-filled).
   async function shareTo(platform: Platform, index: number) {
@@ -605,7 +609,6 @@ export default function Studio() {
     const phone = window.matchMedia("(pointer: coarse)").matches;
     const enc = encodeURIComponent(caption);
     const pages: Record<Platform, string> = {
-      tiktok: "https://www.tiktok.com/tiktokstudio/upload",
       instagram: "https://www.instagram.com/",
       facebook: "https://www.facebook.com/reels/create",
       x: `https://x.com/intent/post?text=${enc}`,
@@ -688,7 +691,7 @@ export default function Studio() {
           <h1>Turn One Video Into <em>Viral Shorts</em> Automatically</h1>
           <p className="lede">
             Paste a YouTube link or upload a video. ViralCut finds the best moments, adds captions, and generates ready-to-post
-            clips with posts and hashtags for TikTok, Reels, and Shorts in minutes.
+            clips with posts and hashtags for YouTube Shorts, Instagram Reels, Facebook and X in minutes.
           </p>
           <form className="composer" onSubmit={generate}>
             <span className="free-tag">⚡ Free to use · no sign-up · runs in your browser</span>

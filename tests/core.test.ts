@@ -70,9 +70,9 @@ test("finds the hooky moment and never overlaps", () => {
 });
 
 test("offline plan writes posts and hashtags for chosen platforms", () => {
-  const plan = offlinePlan(parseTranscript(SRT), null, 0.25, "Test", { count: 2, minLen: 5, maxLen: 15, platforms: ["tiktok", "youtube"] });
+  const plan = offlinePlan(parseTranscript(SRT), null, 0.25, "Test", { count: 2, minLen: 5, maxLen: 15, platforms: ["instagram", "youtube"] });
   assert.ok(plan.clips.length >= 1);
-  assert.deepEqual(Object.keys(plan.clips[0].posts).sort(), ["tiktok", "youtube"]);
+  assert.deepEqual(Object.keys(plan.clips[0].posts).sort(), ["instagram", "youtube"]);
   assert.ok(plan.clips[0].hashtags.youtube!.includes("#shorts"));
   assert.ok(hashtagsFor("AI clipping business. The AI clipping business pays.").includes("#aiclipping"));
 });
@@ -86,13 +86,13 @@ test("snaps clips to sentence boundaries within the length limit", () => {
 });
 
 test("pick step is small; posts step covers only chosen platforms", () => {
-  const pick = pickTask({ transcript: "[0:00] hi", title: "t", count: 3, minLen: 20, maxLen: 60, platforms: ["tiktok"], tone: "Hype", language: "English" }) as any;
+  const pick = pickTask({ transcript: "[0:00] hi", title: "t", count: 3, minLen: 20, maxLen: 60, platforms: ["youtube"], tone: "Hype", language: "English" }) as any;
   const clip = pick.schema.properties.clips.items;
   assert.equal(clip.additionalProperties, false);
   assert.ok(!("posts" in clip.properties));
   assert.ok(pick.schema.required.includes("hashtag_bank"));
-  const posts = postsTask({ title: "t", clips: [{ title: "c", hook: "h", text: "words" }, { title: "d", hook: "i", text: "more" }], platforms: ["tiktok", "x"], tone: "Hype", language: "English" }) as any;
-  assert.deepEqual(posts.schema.properties.clips.items.properties.posts.required, ["tiktok", "x"]);
+  const posts = postsTask({ title: "t", clips: [{ title: "c", hook: "h", text: "words" }, { title: "d", hook: "i", text: "more" }], platforms: ["instagram", "x"], tone: "Hype", language: "English" }) as any;
+  assert.deepEqual(posts.schema.properties.clips.items.properties.posts.required, ["instagram", "x"]);
   assert.match(posts.prompt, /<clip number="2">/);
   assert.match(posts.shape, /"x": \["#tag"\]/);
 });
@@ -105,11 +105,11 @@ test("youtube link parsing", () => {
 });
 
 test("calendar export and best times", () => {
-  const ics = buildIcs([{ id: "1", clipTitle: "A, b", platform: "TikTok", time: "2026-11-01T13:30:00.000Z", caption: "Hi\nthere" }]);
+  const ics = buildIcs([{ id: "1", clipTitle: "A, b", platform: "Instagram", time: "2026-11-01T13:30:00.000Z", caption: "Hi\nthere" }]);
   assert.match(ics, /DTSTART:20261101T133000Z/);
-  assert.match(ics, /SUMMARY:Post on TikTok: A\\, b/);
-  const t = nextBestTime("tiktok", new Date(2026, 9, 25, 12));
-  assert.ok([2, 4, 5].includes(t.getDay()) && t.getHours() === 19);
+  assert.match(ics, /SUMMARY:Post on Instagram: A\\, b/);
+  const t = nextBestTime("instagram", new Date(2026, 9, 25, 12));
+  assert.ok([1, 3, 5].includes(t.getDay()) && t.getHours() === 11);
 });
 
 test("extracts JSON from fenced or chatty model answers", async () => {
@@ -137,7 +137,7 @@ test("provider is picked from whichever key is set", async () => {
 
 test("reads Gemini's streamed answer and Groq's JSON answer", async () => {
   const { streamPlan } = await import("../lib/llm.ts");
-  const req = pickTask({ transcript: "[0:00] hi there", title: "t", count: 1, minLen: 5, maxLen: 10, platforms: ["tiktok"], tone: "Hype", language: "English" });
+  const req = pickTask({ transcript: "[0:00] hi there", title: "t", count: 1, minLen: 5, maxLen: 10, platforms: ["youtube"], tone: "Hype", language: "English" });
   const realFetch = globalThis.fetch;
   const sse = (chunks: object[]) =>
     new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\r\n\r\n`).join(""), { headers: { "Content-Type": "text/event-stream" } });

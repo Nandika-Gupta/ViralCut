@@ -1,10 +1,9 @@
 export type Word = { text: string; start: number; end: number };
 export type Sentence = { text: string; start: number; end: number; words: Word[] };
 
-export const PLATFORMS = ["tiktok", "instagram", "youtube", "x", "linkedin", "facebook"] as const;
+export const PLATFORMS = ["youtube", "instagram", "facebook", "x", "linkedin"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 export const PLATFORM_LABELS: Record<Platform, string> = {
-  tiktok: "TikTok",
   instagram: "Reels",
   youtube: "Shorts",
   x: "X",

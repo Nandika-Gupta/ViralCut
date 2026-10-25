@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ViralCut · Turn one video into viral shorts",
-  description: "Paste a YouTube link or upload a video. ViralCut finds the best moments, adds captions and writes viral posts and hashtags for TikTok, Reels and Shorts.",
+  description: "Paste a YouTube link or upload a video. ViralCut finds the best moments, adds captions and writes viral posts and hashtags for YouTube Shorts, Instagram Reels, Facebook and X.",
   icons: { icon: "/icon.svg" },
 };
 

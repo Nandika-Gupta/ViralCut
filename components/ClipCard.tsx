@@ -22,7 +22,7 @@ type Props = {
   fileName: string;
 };
 
-const SHARE_NAMES: Record<Platform, string> = { tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", linkedin: "LinkedIn", facebook: "Facebook" };
+const SHARE_NAMES: Record<Platform, string> = { instagram: "Instagram", youtube: "YouTube", x: "X", linkedin: "LinkedIn", facebook: "Facebook" };
 
 const scoreClass = (s: number) => (s >= 85 ? "hot" : s >= 70 ? "good" : "ok");
 
@@ -116,7 +116,7 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
       {render?.status === "done" && render.url && (
         <div className="share-row">
           <span>Post to</span>
-          {(["tiktok", "instagram", "facebook", "x", "linkedin"] as Platform[]).map((p) => {
+          {(["instagram", "facebook", "x", "linkedin"] as Platform[]).map((p) => {
             const Icon = PLATFORM_ICONS[p];
             return (
               <button key={p} type="button" className="share-btn" title={`Post to ${SHARE_NAMES[p]}`} aria-label={`Post to ${SHARE_NAMES[p]}`} onClick={() => onShare(p)}>
