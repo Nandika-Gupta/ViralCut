@@ -758,6 +758,8 @@ export default function Studio() {
 
   /* ---- publish buttons ---- */
   const pendingPublish = useRef<{ platform: Platform; index: number } | null>(null);
+  const [needFile, setNeedFile] = useState<{ platform?: Platform; index: number } | null>(null);
+  const needFileDialog = useRef<HTMLDialogElement>(null);
 
   /** The big Publish buttons. X, Facebook and LinkedIn work right away with a link to the moment; YouTube and Instagram need the short's video. */
   function publish(platform: Platform, index: number) {
@@ -799,8 +801,8 @@ export default function Studio() {
       void exportWithFile(null);
       return;
     }
-    notify(platform ? `${PLATFORM_NAMES[platform]} needs the video itself. Choose the video file to create the shorts.` : "Choose the video file to create the shorts.");
-    createInput.current?.click();
+    setNeedFile({ platform, index });
+    window.setTimeout(() => needFileDialog.current?.showModal(), 0);
   }
 
   const plan = project?.plan;
@@ -1124,6 +1126,31 @@ export default function Studio() {
               )}
             </div>
           </form>
+        )}
+      </dialog>
+
+      <dialog ref={needFileDialog} className="modal" onClose={() => setNeedFile(null)}>
+        {needFile && (
+          <div>
+            <h3>{needFile.platform ? `${PLATFORM_NAMES[needFile.platform]} needs the video itself` : "Create the short"}</h3>
+            <p className="muted">
+              {needFile.platform === "youtube" || needFile.platform === "instagram"
+                ? `${needFile.platform === "youtube" ? "YouTube Shorts" : "Instagram Reels"} only accept an uploaded video, not a link. `
+                : ""}
+              ViralCut turns each clip into a vertical 9:16 short with captions, right here in your browser. It needs the
+              original video file once (the same video you pasted the link for).
+            </p>
+            <ol className="setup-steps">
+              <li>Click <b>Choose video file</b> and pick the video (MP4) from your computer.</li>
+              <li>Keep this tab open while the shorts are created (about as long as each clip).</li>
+              <li>Click <b>{needFile.platform ? PLATFORM_NAMES[needFile.platform] : "Publish"}</b> again to post it.</li>
+            </ol>
+            <p className="fineprint">Don&apos;t have the file? Facebook and X work without it: they post a link to this moment.</p>
+            <div className="modal-actions">
+              <button type="button" className="btn ghost" onClick={() => needFileDialog.current?.close()}>Cancel</button>
+              <button type="button" className="btn primary" onClick={() => { needFileDialog.current?.close(); createInput.current?.click(); }}>Choose video file</button>
+            </div>
+          </div>
         )}
       </dialog>
 
