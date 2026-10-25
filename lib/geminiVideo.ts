@@ -2,6 +2,7 @@
  * Server-only fallback when YouTube blocks caption requests from cloud servers: Gemini reads the public
  * YouTube video itself (Google fetches it) and returns a timestamped transcript.
  */
+import { geminiFetch } from "./gemini.ts";
 import { parseTranscript } from "./transcript.ts";
 import type { Sentence } from "./types.ts";
 
@@ -21,12 +22,8 @@ export async function transcribeYouTubeWithGemini(videoId: string, signal?: Abor
   const key = geminiKey();
   if (!key) throw new Error("no Gemini key");
   const model = process.env.VIRALCUT_TRANSCRIBE_MODEL || "gemini-flash-latest";
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      contents: [
+  const body = {
+    contents: [
         {
           role: "user",
           parts: [
@@ -36,17 +33,18 @@ export async function transcribeYouTubeWithGemini(videoId: string, signal?: Abor
           ],
         },
       ],
-      generationConfig: { mediaResolution: "MEDIA_RESOLUTION_LOW", maxOutputTokens: 65536, temperature: 0 },
-    }),
-  });
+    generationConfig: { mediaResolution: "MEDIA_RESOLUTION_LOW", maxOutputTokens: 65536, temperature: 0 },
+  };
+  const { res } = await geminiFetch(model, "generateContent", body, key, signal);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    let detail = body.slice(0, 300);
+    const errBody = await res.text().catch(() => "");
+    let detail = errBody.slice(0, 300);
     try {
-      detail = JSON.parse(body).error?.message ?? detail;
+      detail = JSON.parse(errBody).error?.message ?? detail;
     } catch {
       /* not JSON */
     }
+    if (res.status === 503 || res.status === 500) throw new Error("Gemini is overloaded right now (Google's servers are busy). Wait a minute and try again, or paste the transcript under Clip settings.");
     if (res.status === 429) throw new Error("Gemini's free daily limit for YouTube videos was reached. Paste the transcript instead, or try tomorrow.");
     throw new Error(`Gemini couldn't read this video (${res.status}): ${detail}`);
   }

@@ -1,6 +1,7 @@
 /** Server-only: stream the clip plan from Gemini, Groq or Claude as plain text chunks of one JSON object. */
 import Anthropic from "@anthropic-ai/sdk";
 
+import { geminiFetch } from "./gemini.ts";
 import { SYSTEM, planPrompt, planSchema, shapeHint } from "./planner.ts";
 import type { Provider } from "./providers.ts";
 import type { ClipRequest } from "./types.ts";
@@ -18,6 +19,7 @@ async function failure(res: Response, service: string): Promise<LlmError> {
     /* not JSON */
   }
   if (res.status === 401 || res.status === 403 || /api key/i.test(detail)) return new LlmError(`The server's ${service} API key is invalid.`);
+  if (res.status === 503 || res.status === 500) return new LlmError(`${service} is overloaded right now (Google's servers are busy). Wait a minute and click Generate Clips again.`);
   if (res.status === 429) return new LlmError(`${service} free-tier limit reached. Wait a minute and try again, or use a shorter video.`);
   if (res.status === 413 || /too large|context|tokens/i.test(detail)) return new LlmError(`This transcript is too long for ${service}'s limits. Try a shorter video${service === "Groq" ? " or use a Gemini key" : ""}.`);
   return new LlmError(`${service} error (${res.status}): ${detail}`);
@@ -40,18 +42,16 @@ async function* sseData(res: Response): AsyncGenerator<string> {
 }
 
 async function gemini(p: Provider, req: ClipRequest, emit: Emit, signal: AbortSignal): Promise<void> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(p.model)}:streamGenerateContent?alt=sse`,
+  const { res } = await geminiFetch(
+    p.model,
+    "streamGenerateContent?alt=sse",
     {
-      method: "POST",
-      signal,
-      headers: { "Content-Type": "application/json", "x-goog-api-key": p.key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: "user", parts: [{ text: `${planPrompt(req)}\n\n${shapeHint(req.platforms)}` }] }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768, temperature: 0.7 },
-      }),
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: `${planPrompt(req)}\n\n${shapeHint(req.platforms)}` }] }],
+      generationConfig: { responseMimeType: "application/json", maxOutputTokens: 32768, temperature: 0.7 },
     },
+    p.key,
+    signal,
   );
   if (!res.ok || !res.body) throw await failure(res, "Gemini");
   let finish = "";

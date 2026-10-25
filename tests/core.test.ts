@@ -194,3 +194,33 @@ test("handles YouTube transcripts with >> markers, duration labels or no timesta
   assert.equal(plain[0].start, 0);
   assert.ok(plain[2].start > 4);
 });
+
+test("Gemini overload retries, then switches to another free model", async () => {
+  const { geminiFetch } = await import("../lib/gemini.ts");
+  const realFetch = globalThis.fetch;
+  const calls: string[] = [];
+  try {
+    globalThis.fetch = (async (url: string) => {
+      calls.push(url.split("/models/")[1].split(":")[0]);
+      return calls.length <= 2 ? new Response("busy", { status: 503 }) : Response.json({ ok: true });
+    }) as typeof fetch;
+    const { res, model } = await geminiFetch("gemini-flash-latest", "generateContent", {}, "k");
+    assert.equal(res.ok, true);
+    assert.deepEqual(calls, ["gemini-flash-latest", "gemini-flash-latest", "gemini-2.5-flash"]);
+    assert.equal(model, "gemini-2.5-flash");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("backup services are listed after the preferred one", async () => {
+  const { availableProviders } = await import("../lib/providers.ts");
+  const saved = { ...process.env };
+  for (const k of ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY", "VIRALCUT_PROVIDER", "VIRALCUT_MODEL"]) delete process.env[k];
+  process.env.GEMINI_API_KEY = "a";
+  process.env.GROQ_API_KEY = "b";
+  assert.deepEqual(availableProviders().map((p) => p.name), ["gemini", "groq"]);
+  process.env.VIRALCUT_PROVIDER = "groq";
+  assert.deepEqual(availableProviders().map((p) => p.name), ["groq", "gemini"]);
+  process.env = saved;
+});

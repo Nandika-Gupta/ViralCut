@@ -1,6 +1,6 @@
 import { accessDenied } from "@/lib/access";
 import { LlmError, streamPlan } from "@/lib/llm";
-import { activeProvider } from "@/lib/providers";
+import { availableProviders } from "@/lib/providers";
 import { PLATFORMS, type ClipRequest, type Platform } from "@/lib/types";
 
 export const maxDuration = 300;
@@ -28,8 +28,8 @@ function validate(body: Partial<ClipRequest>): ClipRequest | string {
 export async function POST(req: Request) {
   const denied = accessDenied(req);
   if (denied) return denied;
-  const provider = activeProvider();
-  if (!provider) {
+  const providers = availableProviders();
+  if (!providers.length) {
     return Response.json({ error: "No AI API key is set on the server.", code: "no_key" }, { status: 501 });
   }
   let parsed: ClipRequest | string;
@@ -47,12 +47,23 @@ export async function POST(req: Request) {
   const body = new ReadableStream({
     async start(controller) {
       try {
-        await streamPlan(provider, request, (d) => controller.enqueue(line({ t: "delta", d })), req.signal);
-        controller.enqueue(line({ t: "done", model: `${provider.label} · ${provider.model}` }));
-      } catch (err) {
-        const message = err instanceof LlmError ? err.message : `${provider.label} is unavailable right now. Try again in a minute.`;
-        if (!(err instanceof LlmError)) console.error("clips failed", err);
-        controller.enqueue(line({ t: "error", error: message, code: "api_error" }));
+        let lastError = "";
+        for (const provider of providers) {
+          let sent = false;
+          try {
+            await streamPlan(provider, request, (d) => {
+              sent = true;
+              controller.enqueue(line({ t: "delta", d }));
+            }, req.signal);
+            controller.enqueue(line({ t: "done", model: `${provider.label} · ${provider.model}` }));
+            return;
+          } catch (err) {
+            if (!(err instanceof LlmError)) console.error(`${provider.label} failed`, err);
+            lastError = err instanceof LlmError ? err.message : `${provider.label} is unavailable right now. Try again in a minute.`;
+            if (sent || req.signal.aborted) break; // part of an answer already went out: can't switch services mid-answer
+          }
+        }
+        controller.enqueue(line({ t: "error", error: lastError, code: "api_error" }));
       } finally {
         controller.close();
       }
