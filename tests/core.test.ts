@@ -184,3 +184,13 @@ test("Gemini video transcript is parsed into timed sentences", async () => {
     if (saved === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = saved;
   }
 });
+
+test("handles YouTube transcripts with >> markers, duration labels or no timestamps", () => {
+  const withMarkers = parseTranscript("0:00\n6 seconds\n>> Exactly.\n0:02\n2 seconds\n>> The only time that you get to rest [Music]\n0:05\nis when you stop.");
+  assert.equal(withMarkers[0].text, "Exactly.");
+  assert.ok(withMarkers.every((s) => !s.text.includes(">>") && !s.text.includes("seconds") && !s.text.includes("[Music]")));
+  const plain = parseTranscript("So today we talk about money. Why does nobody price their work right? Here is the secret that changed everything for me and my business.");
+  assert.ok(plain.length >= 3);
+  assert.equal(plain[0].start, 0);
+  assert.ok(plain[2].start > 4);
+});

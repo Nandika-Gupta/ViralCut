@@ -47,7 +47,8 @@ export function parseTimestamp(value: string): number | null {
 
 /**
  * Parse SRT, WebVTT, or a transcript copied from YouTube ("0:00\ntext" or "0:00 text")
- * into sentences with estimated word timings. Returns [] when no timestamps are found.
+ * into sentences with estimated word timings. A transcript copied without timestamps gets times estimated
+ * from a normal speaking pace (about 2.6 words per second).
  */
 export function parseTranscript(raw: string): Sentence[] {
   const lines = raw.replace(/\r/g, "").split("\n").map((l) => l.trim());
@@ -55,6 +56,7 @@ export function parseTranscript(raw: string): Sentence[] {
   let pending: { start: number; end: number | null } | null = null;
   for (const line of lines) {
     if (!line || line === "WEBVTT" || /^\d+$/.test(line) || /^(NOTE|STYLE|Kind:|Language:)/.test(line)) continue;
+    if (DURATION_LABEL.test(line)) continue; // YouTube's spoken-time labels, e.g. "1 minute, 5 seconds"
     const range = line.match(/^((?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?)/);
     if (range) {
       pending = { start: parseTimestamp(range[1])!, end: parseTimestamp(range[2]) };
@@ -66,7 +68,7 @@ export function parseTranscript(raw: string): Sentence[] {
       continue;
     }
     const lead = line.match(/^\[?((?:\d+:)?\d{1,2}:\d{2})\]?\s+(.+)$/);
-    const text = (lead ? lead[2] : line).replace(/<[^>]+>|\{[^}]+\}/g, "").trim();
+    const text = cleanLine(lead ? lead[2] : line);
     const start = lead ? parseTimestamp(lead[1]) : pending?.start ?? null;
     if (start === null || !text) continue;
     if (!lead && pending && cues.length && cues[cues.length - 1].start === pending.start) {
@@ -76,6 +78,7 @@ export function parseTranscript(raw: string): Sentence[] {
     cues.push({ start, end: lead ? null : pending?.end ?? null, text });
     pending = lead ? null : pending;
   }
+  if (!cues.length) return estimateTimings(lines);
   cues.sort((a, b) => a.start - b.start);
   const words: Word[] = [];
   cues.forEach((c, i) => {
@@ -85,6 +88,37 @@ export function parseTranscript(raw: string): Sentence[] {
     words.push(...spreadWords(c.text, c.start, Math.max(end, c.start + 0.3)));
   });
   return wordsToSentences(words);
+}
+
+const DURATION_LABEL = /^\d+\s+(hours?|minutes?|seconds?)(,?\s+\d+\s+(hours?|minutes?|seconds?))*$/i;
+
+/** Drop speaker markers (">>"), sound tags ("[Music]") and markup from a transcript line. */
+function cleanLine(text: string): string {
+  return text
+    .replace(/<[^>]+>|\{[^}]+\}/g, "")
+    .replace(/\[(music|applause|laughter|laughs|inaudible|silence|__)\]|\((laughs|applause|music)\)/gi, "")
+    .replace(/^\s*(>>|-|–|—)\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const WORDS_PER_SECOND = 2.6;
+
+function estimateTimings(lines: string[]): Sentence[] {
+  const text = lines
+    .filter((l) => l && !DURATION_LABEL.test(l) && parseTimestamp(l) === null && !/-->/.test(l) && !/^\d+$/.test(l) && l !== "WEBVTT")
+    .map(cleanLine)
+    .filter(Boolean)
+    .join(" ");
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length < 8) return [];
+  const words: Word[] = tokens.map((t, i) => ({ text: t, start: round(i / WORDS_PER_SECOND), end: round((i + 0.9) / WORDS_PER_SECOND) }));
+  return wordsToSentences(words, 1.2, 12);
+}
+
+/** True when the pasted text carries its own timestamps (otherwise clip times are estimates). */
+export function hasTimestamps(raw: string): boolean {
+  return raw.split("\n").filter((l) => /^\[?(\d+:)?\d{1,2}:\d{2}/.test(l.trim())).length >= 2;
 }
 
 export function formatTime(sec: number): string {

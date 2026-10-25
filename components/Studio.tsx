@@ -9,7 +9,7 @@ import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
 import { buildIcs, nextBestTime, type ScheduledPost } from "@/lib/ics";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
 import { extractJson } from "@/lib/json";
-import { formatTime, parseTranscript, snapToSentences, spreadWords, transcriptText, wordsBetween, wordsToSentences } from "@/lib/transcript";
+import { formatTime, hasTimestamps, parseTimestamp, parseTranscript, snapToSentences, spreadWords, transcriptText, wordsBetween, wordsToSentences } from "@/lib/transcript";
 import { PLATFORMS, PLATFORM_LABELS, type ClipPlan, type Plan, type Platform, type Sentence, type Word } from "@/lib/types";
 
 /* ---------------- settings ---------------- */
@@ -121,13 +121,20 @@ async function planWithAI(
   }
 }
 
+/** Models sometimes answer "1:23" instead of 83. */
+function toSeconds(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const str = String(v ?? "").trim();
+  return parseTimestamp(str) ?? (Number(str) || 0);
+}
+
 function cleanPlan(raw: Omit<Plan, "engine">, sentences: Sentence[], s: Settings, engine: string): Plan {
   const { min, max } = LENGTHS[s.length];
   const tag = (t: string) => "#" + String(t).replace(/^#+/, "").replace(/\s+/g, "");
   const taken: [number, number][] = [];
   const clips: ClipPlan[] = [];
   for (const c of Array.isArray(raw.clips) ? raw.clips : []) {
-    const snapped = snapToSentences(Number(c.start) || 0, Number(c.end) || 0, sentences, min, max);
+    const snapped = snapToSentences(toSeconds(c.start), toSeconds(c.end), sentences, min, max);
     const { start, end } = snapped;
     if (end <= start) continue;
     if (taken.some(([a, b]) => Math.min(end, b) - Math.max(start, a) > 0.25 * Math.min(end - start, b - a))) continue;
@@ -327,7 +334,7 @@ export default function Studio() {
         source = { kind: "youtube", url: link, videoId: ytId };
         if (pasted.trim()) {
           sentences = parseTranscript(pasted);
-          transcriptSource = "pasted transcript";
+          transcriptSource = hasTimestamps(pasted) ? "pasted transcript" : "pasted transcript (no timestamps, times estimated)";
         } else {
           setStep(1);
           setStatus("Reading the video's speech (long videos can take a couple of minutes)…");
@@ -358,7 +365,7 @@ export default function Studio() {
         loudness = loudnessCurve(audio);
         if (pasted.trim()) {
           sentences = parseTranscript(pasted);
-          transcriptSource = "pasted transcript";
+          transcriptSource = hasTimestamps(pasted) ? "pasted transcript" : "pasted transcript (no timestamps, times estimated)";
         } else {
           sentences = await transcribeInBrowser(audio, settings.spokenLang, (m, f) => { setStatus(m); setFraction(f); });
           transcriptSource = "Whisper (in your browser)";
@@ -366,7 +373,7 @@ export default function Studio() {
         setFraction(null);
       }
       if (ctl.signal.aborted) return;
-      if (sentences.length < 2) throw Object.assign(new Error("No speech was found in this video, so there's nothing to clip. Paste a transcript under Clip settings to continue."), { askTranscript: true });
+      if (sentences.length < 2) throw Object.assign(new Error(pasted.trim() ? "The pasted transcript is too short or couldn't be read. Copy the whole transcript panel from YouTube (with timestamps) and paste it again." : "No speech was found in this video, so there's nothing to clip. Paste a transcript under Clip settings to continue."), { askTranscript: true });
       if (!duration) duration = sentences[sentences.length - 1].end;
 
       // 2-3. find moments + write posts
@@ -390,6 +397,7 @@ export default function Studio() {
         );
         if (result) plan = cleanPlan(result.plan, sentences, settings, result.model || config.model);
       }
+      if (plan && !plan.clips.length) plan = null; // unusable AI answer: fall back to built-in scoring
       if (!plan) {
         plan = offlinePlan(sentences, loudness, LOUDNESS_HOP, title, { count: settings.count, minLen: min, maxLen: max, platforms: settings.platforms });
         if (!config?.ai) plan.engine = "Offline scoring (add a GEMINI_API_KEY for AI)";
