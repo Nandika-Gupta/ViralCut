@@ -16,12 +16,17 @@ type Props = {
   render?: RenderState;
   onCopy: (text: string) => void;
   onSchedule: (clip: ClipPlan, platform: Platform) => void;
+  onPostYouTube: () => void;
+  onShare: (platform: Platform) => void;
+  postedUrl?: string;
   fileName: string;
 };
 
+const SHARE_NAMES: Record<Platform, string> = { tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", x: "X", linkedin: "LinkedIn", facebook: "Facebook" };
+
 const scoreClass = (s: number) => (s >= 85 ? "hot" : s >= 70 ? "good" : "ok");
 
-export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onSchedule, fileName }: Props) {
+export default function ClipCard({ index, clip, platforms, videoId, render, onCopy, onSchedule, onPostYouTube, onShare, postedUrl, fileName }: Props) {
   const [platform, setPlatform] = useState<Platform>(platforms[0]);
   const [playing, setPlaying] = useState(false);
   const text = clip.posts[platform] ?? "";
@@ -99,6 +104,28 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
         )}
         <button className="btn primary" type="button" onClick={() => onSchedule(clip, platform)}>🗓 Schedule</button>
       </div>
+      {render?.status === "done" && render.url && (
+        <div className="clip-foot">
+          {postedUrl ? (
+            <a className="btn yt-btn" href={postedUrl} target="_blank" rel="noopener noreferrer">✓ Posted · View on YouTube</a>
+          ) : (
+            <button className="btn yt-btn" type="button" onClick={onPostYouTube}>▶ Post to YouTube Shorts</button>
+          )}
+        </div>
+      )}
+      {render?.status === "done" && render.url && (
+        <div className="share-row">
+          <span>Post to</span>
+          {(["tiktok", "instagram", "facebook", "x", "linkedin"] as Platform[]).map((p) => {
+            const Icon = PLATFORM_ICONS[p];
+            return (
+              <button key={p} type="button" className="share-btn" title={`Post to ${SHARE_NAMES[p]}`} aria-label={`Post to ${SHARE_NAMES[p]}`} onClick={() => onShare(p)}>
+                <Icon size={22} />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </article>
   );
 }

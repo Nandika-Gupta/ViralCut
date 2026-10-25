@@ -9,5 +9,7 @@ export function GET() {
     ai: Boolean(p),
     model: p ? `${all.map((x) => x.label).join(" + ")} · ${p.model}` : "",
     accessCode: Boolean(process.env.VIRALCUT_ACCESS_CODE),
+    // OAuth client IDs are public by design (they identify the site to Google); no secret is exposed.
+    googleClientId: process.env.GOOGLE_CLIENT_ID || "",
   });
 }

@@ -14,6 +14,8 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 | **Face-tracking reframe** | MediaPipe face detection keeps the speaker centred in a 9:16 frame. Blurred-background and center-crop modes are also available. |
 | **Animated captions** | Word-by-word captions (bold pop, karaoke, neon, minimal) plus a hook title for the first 3 seconds, rendered to MP4/WebM in the browser. |
 | **Posts & hashtags** | Platform-native posts and hashtags for every clip, an X thread, LinkedIn and Instagram posts for the full video, and a hashtag bank. |
+| **Post to YouTube** | One click uploads a finished short to your YouTube channel (YouTube Data API, sign in with Google). Needs `GOOGLE_CLIENT_ID`. |
+| **Post to TikTok, Instagram, Facebook, X, LinkedIn** | On phones, the share sheet opens with the video attached. On computers, the video downloads, the caption is copied, and the platform's upload page opens (X and LinkedIn with the caption pre-filled). |
 | **Scheduling** | Plan each short at the platform's peak time and export the schedule to your calendar (`.ics`). |
 
 ## Deploy on Vercel
@@ -28,6 +30,18 @@ for TikTok, Reels, Shorts, X, LinkedIn and Facebook. You can also plan when each
 3. Click **Deploy**.
 
 `/api/clips` streams the AI's answer and may run for up to 300 seconds (`maxDuration`). That's within Vercel's limits with Fluid compute, which is on by default.
+
+## Post to YouTube (one-time setup)
+
+1. Open [console.cloud.google.com](https://console.cloud.google.com), create a project, and enable **YouTube Data API v3**.
+2. Under **Google Auth Platform → Branding**, enter the app name and your email. Under **Audience**, pick **External** and add your Google account as a **test user**.
+3. Under **Clients → Create client → Web application**, add your site (e.g. `https://your-app.vercel.app`) to **Authorized JavaScript origins**.
+4. Copy the **Client ID**, add it in Vercel as `GOOGLE_CLIENT_ID`, and redeploy.
+
+Google keeps videos uploaded by unreviewed apps **private**. Switch them to Public in YouTube Studio, or apply for the
+[YouTube API audit](https://support.google.com/youtube/contact/yt_api_form) to post publicly straight away.
+Facebook, Instagram, TikTok and X only allow direct API posting for apps they have reviewed (X's API is paid), so those
+buttons use the share sheet or the upload page instead.
 
 ## Run locally
 

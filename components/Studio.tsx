@@ -7,6 +7,7 @@ import { Drive, Dropbox, Kick, Loom, PLATFORM_ICONS, Twitch, Upload, YouTube } f
 import { offlineCopy, offlinePlan } from "@/lib/analysis";
 import { LOUDNESS_HOP, decodeAudio, loudnessCurve } from "@/lib/audio";
 import { buildIcs, nextBestTime, type ScheduledPost } from "@/lib/ics";
+import { getYouTubeToken, shortsTitle, uploadToYouTube, type YouTubeMeta } from "@/lib/youtubeUpload";
 import { renderClip, type CaptionStyle, type Layout } from "@/lib/render";
 import { extractJson } from "@/lib/json";
 import { formatTime, hasTimestamps, parseTimestamp, parseTranscript, snapToSentences, spreadWords, transcriptText, wordsBetween, wordsToSentences } from "@/lib/transcript";
@@ -34,7 +35,7 @@ const SPOKEN_LANGS: [string, string][] = [
 const STEP_NAMES = ["Import", "Transcribe", "Find viral moments", "Write posts", "Render shorts"] as const;
 const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|ogv)(\?|$)/i;
 
-type Config = { ai: boolean; model: string; accessCode: boolean };
+type Config = { ai: boolean; model: string; accessCode: boolean; googleClientId?: string };
 type Source = { kind: "youtube"; url: string; videoId: string } | { kind: "file"; name: string };
 type Project = {
   id: string; created: number; title: string; summary: string; duration: number; engine: string; transcriptSource: string;
@@ -264,6 +265,10 @@ export default function Studio() {
   const [dragging, setDragging] = useState(false);
   const [toast, setToast] = useState("");
   const [sched, setSched] = useState<{ clip: ClipPlan; platform: Platform; time: string; caption: string } | null>(null);
+  const [ytPost, setYtPost] = useState<{ index: number; meta: YouTubeMeta; schedule: string; phase: "edit" | "uploading" | "done" | "error"; progress: number; message: string } | null>(null);
+  const [posted, setPosted] = useState<Record<number, string>>({});
+  const ytDialog = useRef<HTMLDialogElement>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const renderVideo = useRef<HTMLVideoElement>(null);
   const fileUrl = useRef<string | null>(null);
@@ -285,7 +290,8 @@ export default function Studio() {
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(""), 2000);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(""), msg.length > 60 ? 6000 : 2200);
   }, []);
   const copy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).then(() => notify("Copied"), () => notify("Couldn't copy. Select the text instead."));
@@ -346,6 +352,7 @@ export default function Studio() {
     setPhase("working");
     setProject(null);
     setRenders({});
+    setPosted({});
     setFound(0);
     setStep(0);
     setFraction(null);
@@ -550,6 +557,91 @@ export default function Studio() {
     setSchedule(store.get<ScheduledPost[]>(`viralcut-schedule-${p.id}`, []));
     setPhase("done");
     window.setTimeout(() => studioRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }
+
+  /* ---- post to YouTube ---- */
+  function openYouTubePost(index: number) {
+    const clip = project!.plan.clips[index];
+    const tags = clip.hashtags.youtube ?? clip.hashtags[project!.platforms[0]] ?? [];
+    const title = clip.posts.youtube || clip.title;
+    const description = `${clip.posts.youtube && clip.posts.youtube !== title ? clip.posts.youtube + "\n\n" : ""}${clip.quote ? `"${clip.quote}"\n\n` : ""}${tags.join(" ")}`.trim();
+    setYtPost({ index, meta: { title: shortsTitle(title), description, tags, privacy: "public" }, schedule: "", phase: "edit", progress: 0, message: "" });
+    window.setTimeout(() => ytDialog.current?.showModal(), 0);
+  }
+
+  async function submitYouTube(e: React.FormEvent) {
+    e.preventDefault();
+    if (!ytPost || !project) return;
+    const clientId = config?.googleClientId;
+    if (!clientId) return;
+    const r = renders[ytPost.index];
+    if (!r?.url) return;
+    setYtPost({ ...ytPost, phase: "uploading", progress: 0, message: "Signing in to Google…" });
+    try {
+      const accessToken = await getYouTubeToken(clientId);
+      setYtPost((cur) => cur && { ...cur, message: "Uploading to YouTube…" });
+      const blob = await (await fetch(r.url)).blob();
+      const meta = { ...ytPost.meta, publishAt: ytPost.schedule ? new Date(ytPost.schedule).toISOString() : undefined };
+      const id = await uploadToYouTube(accessToken, blob, meta, (f) => setYtPost((cur) => cur && { ...cur, progress: f }));
+      const url = `https://youtube.com/shorts/${id}`;
+      setPosted((cur) => ({ ...cur, [ytPost.index]: url }));
+      setYtPost((cur) => cur && { ...cur, phase: "done", progress: 1, message: url });
+    } catch (err) {
+      setYtPost((cur) => cur && { ...cur, phase: "error", message: (err as Error).message });
+    }
+  }
+
+  /* ---- post to other platforms ---- */
+  // Facebook, Instagram, TikTok and X only allow direct API posting for apps they have reviewed (X's API is paid),
+  // so: phones get the share sheet with the video attached; computers get the file, the caption on the clipboard,
+  // and the platform's upload page (X and LinkedIn with the caption pre-filled).
+  async function shareTo(platform: Platform, index: number) {
+    const clip = project!.plan.clips[index];
+    const r = renders[index];
+    if (!r?.url) return;
+    const caption = `${clip.posts[platform] ?? clip.posts[project!.platforms[0]] ?? clip.title}\n\n${(clip.hashtags[platform] ?? clip.hashtags[project!.platforms[0]] ?? []).join(" ")}`.trim();
+    const fileName = `viralcut-${index + 1}-${slug(clip.title)}.${r.ext}`;
+    const name = PLATFORM_LABELS[platform] === "Reels" ? "Instagram" : PLATFORM_LABELS[platform] === "Shorts" ? "YouTube" : PLATFORM_LABELS[platform];
+    const phone = window.matchMedia("(pointer: coarse)").matches;
+    const enc = encodeURIComponent(caption);
+    const pages: Record<Platform, string> = {
+      tiktok: "https://www.tiktok.com/tiktokstudio/upload",
+      instagram: "https://www.instagram.com/",
+      facebook: "https://www.facebook.com/reels/create",
+      x: `https://x.com/intent/post?text=${enc}`,
+      linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${enc}`,
+      youtube: "https://studio.youtube.com/",
+    };
+    // Open the tab right away (before any await) so the browser doesn't block it as a pop-up.
+    const tab = phone ? null : window.open(pages[platform], "_blank");
+    if (tab) tab.opener = null;
+    navigator.clipboard.writeText(caption).catch(() => undefined);
+    if (phone) {
+      try {
+        const blob = await (await fetch(r.url)).blob();
+        const file = new File([blob], fileName, { type: blob.type || "video/mp4" });
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], text: caption, title: clip.title });
+          notify(`Caption copied. Paste it in ${name} if it's not filled in.`);
+          return;
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+      }
+    }
+    const a = document.createElement("a");
+    a.href = r.url;
+    a.download = fileName;
+    a.click();
+    if (!phone && !tab) {
+      notify(`Your browser blocked the new tab. Video downloaded and caption copied. Open ${name} and upload ${fileName}.`);
+      return;
+    }
+    notify(
+      platform === "x" || platform === "linkedin"
+        ? `Video downloaded and caption filled in. Attach ${fileName} in ${name}.`
+        : `Video downloaded and caption copied. In ${name}, upload ${fileName} and paste the caption.`,
+    );
   }
 
   /* ---- scheduling ---- */
@@ -785,7 +877,7 @@ export default function Studio() {
               <div className="clips">
                 {plan.clips.map((c, i) => (
                   <ClipCard key={`${project.id}-${i}`} index={i} clip={c} platforms={project.platforms} videoId={videoId}
-                    render={renders[i]} onCopy={copy} onSchedule={openSchedule} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
+                    render={renders[i]} onCopy={copy} onSchedule={openSchedule} onPostYouTube={() => openYouTubePost(i)} onShare={(p) => shareTo(p, i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
                 ))}
               </div>
 
@@ -861,6 +953,67 @@ export default function Studio() {
       </section>
 
       <video ref={renderVideo} playsInline preload="auto" style={{ position: "fixed", width: 2, height: 2, opacity: 0, pointerEvents: "none", left: 0, bottom: 0 }} />
+
+      <dialog ref={ytDialog} className="modal" onClose={() => setYtPost(null)}>
+        {ytPost && !config?.googleClientId && (
+          <div>
+            <h3>Set up YouTube posting</h3>
+            <p className="muted">Posting needs a free Google OAuth client ID for this website (one-time, about 10 minutes):</p>
+            <ol className="setup-steps">
+              <li>Open <b>console.cloud.google.com</b>, create a project, then enable <b>YouTube Data API v3</b>.</li>
+              <li><b>Google Auth Platform → Branding</b>: fill in the app name and your email. <b>Audience</b>: External, and add your Google account as a <b>test user</b>.</li>
+              <li><b>Clients → Create client → Web application</b>. Under <b>Authorized JavaScript origins</b> add <code>{typeof window !== "undefined" ? window.location.origin : ""}</code>.</li>
+              <li>Copy the <b>Client ID</b>. In Vercel, add the environment variable <code>GOOGLE_CLIENT_ID</code> with it and redeploy.</li>
+            </ol>
+            <div className="modal-actions"><button type="button" className="btn primary" onClick={() => ytDialog.current?.close()}>OK</button></div>
+          </div>
+        )}
+        {ytPost && config?.googleClientId && (
+          <form onSubmit={submitYouTube}>
+            <h3>Post to YouTube Shorts</h3>
+            <p className="muted" style={{ margin: 0 }}>Uploads this short to the YouTube channel you sign in with.</p>
+            <label htmlFor="ytTitle">Title <span className="muted">({ytPost.meta.title.length}/100)</span></label>
+            <input id="ytTitle" className="field" maxLength={100} required value={ytPost.meta.title} disabled={ytPost.phase !== "edit" && ytPost.phase !== "error"}
+              onChange={(e) => setYtPost({ ...ytPost, meta: { ...ytPost.meta, title: e.target.value } })} />
+            <label htmlFor="ytDesc">Description & hashtags</label>
+            <textarea id="ytDesc" className="field" rows={5} value={ytPost.meta.description} disabled={ytPost.phase !== "edit" && ytPost.phase !== "error"} style={{ fontFamily: "var(--sans)" }}
+              onChange={(e) => setYtPost({ ...ytPost, meta: { ...ytPost.meta, description: e.target.value } })} />
+            <label>Visibility</label>
+            <div className="chips">
+              {(["public", "unlisted", "private"] as const).map((v) => (
+                <button key={v} type="button" className="chip" aria-pressed={!ytPost.schedule && ytPost.meta.privacy === v} disabled={ytPost.phase === "uploading"}
+                  onClick={() => setYtPost({ ...ytPost, schedule: "", meta: { ...ytPost.meta, privacy: v } })}>{v[0].toUpperCase() + v.slice(1)}</button>
+              ))}
+            </div>
+            <label htmlFor="ytWhen">Or schedule it <span className="muted">(goes public at this time)</span></label>
+            <input id="ytWhen" className="field" type="datetime-local" value={ytPost.schedule} disabled={ytPost.phase === "uploading"}
+              onChange={(e) => setYtPost({ ...ytPost, schedule: e.target.value })} />
+            <p className="fineprint" style={{ marginTop: 10 }}>
+              Google keeps uploads from new, unreviewed apps <b>private</b>. If that happens, open YouTube Studio and switch the video to Public.
+            </p>
+            {ytPost.phase === "uploading" && (
+              <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+                <span className="muted">{ytPost.message} {Math.round(ytPost.progress * 100)}%</span>
+                <div className="bar"><i style={{ width: `${Math.round(ytPost.progress * 100)}%` }} /></div>
+              </div>
+            )}
+            {ytPost.phase === "error" && <p className="error-box" style={{ marginTop: 10 }}>{ytPost.message}</p>}
+            {ytPost.phase === "done" && (
+              <p className="notice" style={{ color: "#b8f5d2", borderColor: "rgba(53,208,127,.4)", background: "rgba(53,208,127,.08)" }}>
+                ✓ Uploaded! <a href={ytPost.message} target="_blank" rel="noopener noreferrer">{ytPost.message}</a>. YouTube may take a few minutes to process it.
+              </p>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn ghost" onClick={() => ytDialog.current?.close()}>{ytPost.phase === "done" ? "Close" : "Cancel"}</button>
+              {ytPost.phase !== "done" && (
+                <button type="submit" className="btn yt-btn" disabled={ytPost.phase === "uploading"}>
+                  {ytPost.phase === "uploading" ? "Uploading…" : ytPost.schedule ? "Schedule on YouTube" : "Post to YouTube"}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </dialog>
 
       <dialog ref={dialogRef} className="modal" onClose={() => setSched(null)}>
         {sched && (
