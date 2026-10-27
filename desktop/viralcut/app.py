@@ -349,8 +349,12 @@ def helper_download(body: HelperDownload) -> FileResponse:
             path = media.download(url, folder, max_height=720)
         except Exception as exc:  # pylint: disable=broad-except
             shutil.rmtree(folder, ignore_errors=True)
-            message = str(exc).replace("ERROR: ", "")[:300]
-            raise HTTPException(502, f"Couldn't download this video: {message}") from exc
+            message = str(exc).replace("ERROR: ", "")
+            if "confirm you" in message and "bot" in message:
+                message = "YouTube asked this computer to sign in. Try again in a few minutes, or use another network."
+            elif "Private video" in message or "unavailable" in message.lower():
+                message = "This video is private, age-restricted or unavailable."
+            raise HTTPException(502, f"Couldn't download this video: {message[:300]}") from exc
         # keep only the 5 most recent downloads
         for old in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[5:]:
             shutil.rmtree(old, ignore_errors=True)

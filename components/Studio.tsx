@@ -17,6 +17,7 @@ import { PLATFORMS, PLATFORM_LABELS, type ClipPlan, type Plan, type Platform, ty
 /* ---------------- settings ---------------- */
 
 const LENGTHS = [
+  { label: "10–15s", min: 10, max: 15 },
   { label: "15–30s", min: 15, max: 30 },
   { label: "20–60s", min: 20, max: 60 },
   { label: "45–90s", min: 45, max: 90 },
@@ -48,7 +49,7 @@ type Settings = {
   layout: Layout; captions: CaptionStyle; hook: boolean; hd: boolean; useAi: boolean;
 };
 const DEFAULTS: Settings = {
-  count: 5, length: 1, platforms: ["youtube", "instagram", "facebook", "x"], tone: "Hype", outLang: OUTPUT_LANGS[0][0],
+  count: 5, length: 2, platforms: ["youtube", "instagram", "facebook", "x"], tone: "Hype", outLang: OUTPUT_LANGS[0][0],
   spokenLang: "", layout: "auto", captions: "bold", hook: true, hd: false, useAi: true,
 };
 

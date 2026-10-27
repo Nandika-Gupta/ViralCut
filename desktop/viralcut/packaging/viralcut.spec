@@ -14,7 +14,7 @@ datas = [
 ]
 binaries = []
 hiddenimports = ["viralcut.app"] + collect_submodules("uvicorn") + collect_submodules("yt_dlp")
-for package in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers"):
+for package in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "yt_dlp_ejs"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries

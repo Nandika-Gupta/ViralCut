@@ -130,6 +130,15 @@ def selftest() -> int:
             print(f"[{layout}] output {info.width}x{info.height}, {info.duration:.1f}s, audio={info.has_audio}")
             if (info.width, info.height) != (720, 1280):
                 return 1
+    import shutil  # pylint: disable=import-outside-toplevel
+
+    import yt_dlp_ejs  # noqa: F401 pylint: disable=import-outside-toplevel,unused-import
+
+    deno = shutil.which("deno")
+    print(f"[youtube] JavaScript runtime: {deno}")
+    if getattr(sys, "frozen", False) and not deno:
+        print("deno.exe is missing: YouTube downloads would fail")
+        return 1
     import ctranslate2  # noqa: F401 pylint: disable=import-outside-toplevel,unused-import
     import faster_whisper  # noqa: F401 pylint: disable=import-outside-toplevel,unused-import
     import yt_dlp  # noqa: F401 pylint: disable=import-outside-toplevel,unused-import

@@ -2,6 +2,6 @@
 
 from .config import load_settings
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 load_settings()
