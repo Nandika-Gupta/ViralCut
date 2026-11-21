@@ -2,7 +2,8 @@
  * Browser-only: talk to the ViralCut app running on the viewer's own computer. YouTube blocks cloud servers,
  * so the app downloads the video locally and hands it to the website, which then creates the shorts.
  */
-const PORTS = [8000, 8001, 8002, 8003, 8004, 8005];
+// The app takes 8000, or the first free port up to 8019 when 8000 is busy.
+const PORTS = Array.from({ length: 20 }, (_, i) => 8000 + i);
 export const HELPER_DOWNLOAD_URL = "https://github.com/Nandika-Gupta/ViralCut/releases/latest";
 
 let found: string | null = null;
@@ -24,22 +25,27 @@ async function localFetch(url: string, init: RequestInit = {}): Promise<Response
 /** The helper's address, or null when the app isn't running (or the browser blocked local access). */
 export async function findHelper(): Promise<string | null> {
   const candidates = found ? [found] : PORTS.map((p) => `http://127.0.0.1:${p}`);
-  for (const base of candidates) {
+  // Ask every port at once: a closed port answers instantly, so this takes as long as the slowest one.
+  const ping = async (base: string) => {
+    const ctl = new AbortController();
+    const t = window.setTimeout(() => ctl.abort(), 2500);
     try {
-      const ctl = new AbortController();
-      const t = window.setTimeout(() => ctl.abort(), 2500);
       const res = await localFetch(`${base}/api/helper/ping`, { signal: ctl.signal });
-      window.clearTimeout(t);
-      if (res.ok && (await res.json()).app === "viralcut-helper") {
-        found = base;
-        return base;
-      }
+      if (res.ok && (await res.json()).app === "viralcut-helper") return base;
     } catch {
       /* not running on this port */
+    } finally {
+      window.clearTimeout(t);
     }
+    throw new Error("no helper");
+  };
+  try {
+    found = await Promise.any(candidates.map(ping));
+    return found;
+  } catch {
+    found = null;
+    return null;
   }
-  found = null;
-  return null;
 }
 
 /** Download the video through the helper. Reports progress once the file starts arriving. */

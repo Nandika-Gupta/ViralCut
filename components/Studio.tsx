@@ -1248,6 +1248,7 @@ export default function Studio() {
                 <ol className="setup-steps">
                   <li><a href={HELPER_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">Download and install ViralCut for Windows</a> (one time), then open it.</li>
                   <li>Come back here and click <b>Try again</b>. If your browser asks to access apps on this device, click <b>Allow</b>.</li>
+                  <li>Still not found? Make sure the ViralCut window is open, then click the icon left of this site&apos;s address in Chrome, open <b>Site settings</b> and set <b>Local network access</b> (or <b>Apps on device</b>) to <b>Allow</b>. Reload this page and try again.</li>
                 </ol>
                 <p className="fineprint">Or choose the video file yourself if you already have it.</p>
               </>
