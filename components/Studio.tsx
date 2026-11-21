@@ -604,6 +604,9 @@ export default function Studio() {
       await renderAll(project, s, ctl.signal);
       const pending = pendingPublish.current;
       pendingPublish.current = null;
+      const one = autoDownloadOne.current;
+      autoDownloadOne.current = null;
+      if (one !== null && !autoDownload.current) window.setTimeout(() => downloadClip.current?.(one), 500);
       if (autoDownload.current) {
         autoDownload.current = false;
         window.setTimeout(() => downloadAll.current?.(), 500); // after React shows the finished files
@@ -792,6 +795,7 @@ export default function Studio() {
   /* ---- publish buttons ---- */
   const pendingPublish = useRef<{ platform: Platform; index: number } | null>(null);
   const autoDownload = useRef(false);
+  const autoDownloadOne = useRef<number | null>(null); // the clip whose Download MP4 button was clicked before it existed
   const [needFile, setNeedFile] = useState<{ platform?: Platform; index: number } | null>(null);
   const needFileDialog = useRef<HTMLDialogElement>(null);
 
@@ -824,9 +828,10 @@ export default function Studio() {
   }
 
   /** Render the shorts (asking for the video file if this project doesn't have it yet). */
-  function createShort(index: number, platform?: Platform, downloadAll = false) {
+  function createShort(index: number, platform?: Platform, downloadAll = false, downloadThis = false) {
     if (!project) return;
     autoDownload.current = downloadAll;
+    autoDownloadOne.current = downloadThis ? index : null;
     if (renders[index]?.status === "rendering" || renders[index]?.status === "queued") {
       return notify("This short is being created. Keep this tab open, then click the button again.");
     }
@@ -872,6 +877,17 @@ export default function Studio() {
   }
 
   const plan = project?.plan;
+  // Downloads one finished short (used when its Download MP4 button was clicked before the MP4 existed).
+  const downloadClip = useRef<((i: number) => void) | null>(null);
+  downloadClip.current = (i: number) => {
+    const c = project?.plan.clips[i];
+    const r = renders[i];
+    if (!c || !r?.url) return;
+    const a = document.createElement("a");
+    a.href = r.url;
+    a.download = `viralcut-${i + 1}-${slug(c.title)}.${r.ext}`;
+    a.click();
+  };
   // Always points at a function that sees the latest rendered files (used after "Download all shorts" finishes creating them).
   const downloadAll = useRef<(() => void) | null>(null);
   downloadAll.current = () => {
@@ -1092,7 +1108,7 @@ export default function Studio() {
               <div className="clips">
                 {plan.clips.map((c, i) => (
                   <ClipCard key={`${project.id}-${i}`} index={i} clip={c} platforms={project.platforms} videoId={videoId}
-                    render={renders[i]} onCopy={copy} onPublish={(p) => publish(p, i)} onCreate={() => createShort(i)} onUpdate={(c) => updateClip(i, c)} onDelete={() => deleteClip(i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
+                    render={renders[i]} onCopy={copy} onPublish={(p) => publish(p, i)} onCreate={() => createShort(i, undefined, false, true)} onUpdate={(c) => updateClip(i, c)} onDelete={() => deleteClip(i)} postedUrl={posted[i]} fileName={`viralcut-${i + 1}-${slug(c.title)}`} />
                 ))}
               </div>
 

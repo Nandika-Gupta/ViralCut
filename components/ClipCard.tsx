@@ -168,7 +168,7 @@ export default function ClipCard({ index, clip, platforms, videoId, render, onCo
           <a className="btn" href={render!.url} download={`${fileName}.${render!.ext}`}>⬇ Download MP4</a>
         ) : (
           <button className="btn" type="button" onClick={onCreate} disabled={render?.status === "rendering" || render?.status === "queued"}>
-            {render?.status === "rendering" ? "Creating…" : render?.status === "queued" ? "Queued…" : "🎬 Create short"}
+            {render?.status === "rendering" ? `Creating MP4… ${Math.round((render.progress ?? 0) * 100)}%` : render?.status === "queued" ? "Queued…" : "⬇ Download MP4"}
           </button>
         )}
         {videoId && (
