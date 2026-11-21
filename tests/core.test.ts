@@ -201,8 +201,8 @@ test("Gemini overload retries, then switches to another free model", async () =>
     }) as typeof fetch;
     const { res, model } = await geminiFetch("gemini-flash-latest", "generateContent", {}, "k");
     assert.equal(res.ok, true);
-    assert.deepEqual(calls, ["gemini-flash-latest", "gemini-flash-latest", "gemini-2.5-flash"]);
-    assert.equal(model, "gemini-2.5-flash");
+    assert.deepEqual(calls, ["gemini-flash-latest", "gemini-flash-latest", "gemini-3.5-flash"]);
+    assert.equal(model, "gemini-3.5-flash");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -218,4 +218,18 @@ test("backup services are listed after the preferred one", async () => {
   process.env.VIRALCUT_PROVIDER = "groq";
   assert.deepEqual(availableProviders().map((p) => p.name), ["groq", "gemini"]);
   process.env = saved;
+});
+
+test("a real Gemini error is reported instead of a retired model's 404", async () => {
+  const { geminiFetch } = await import("../lib/gemini.ts");
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (url: string) =>
+      url.includes("/models/gemini-flash-latest:") ? new Response("quota", { status: 429 }) : new Response("gone", { status: 404 })) as typeof fetch;
+    const { res, model } = await geminiFetch("gemini-flash-latest", "generateContent", {}, "k");
+    assert.equal(res.status, 429);
+    assert.equal(model, "gemini-flash-latest");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

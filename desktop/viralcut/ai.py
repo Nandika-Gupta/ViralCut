@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 DEFAULT_MODELS = {"gemini": "gemini-flash-latest", "groq": "llama-3.3-70b-versatile", "anthropic": "claude-opus-5-5"}
 LABELS = {"gemini": "Gemini", "groq": "Groq", "anthropic": "Claude"}
 KEYS = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
-GEMINI_FALLBACKS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
+GEMINI_FALLBACKS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest", "gemini-3.5-flash-lite"]
 PLATFORMS = ("youtube", "instagram", "facebook", "x", "linkedin")
 
 

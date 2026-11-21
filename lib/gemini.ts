@@ -2,7 +2,8 @@
  * Server-only Gemini request with automatic recovery: Google's free models are often briefly overloaded
  * (503) or rate-limited (429). Retry the chosen model, then try other free Flash models before giving up.
  */
-const FALLBACKS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"];
+// "-latest" aliases follow Google's current models; the pinned names are backups. Retired names return 404 and are skipped.
+const FALLBACKS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest", "gemini-3.5-flash-lite"];
 // Only for local testing against a mock server.
 const BASE = process.env.VIRALCUT_GEMINI_BASE || "https://generativelanguage.googleapis.com";
 const RETRYABLE = new Set([500, 502, 503, 504]);
@@ -29,6 +30,7 @@ export async function geminiFetch(
 ): Promise<{ res: Response; model: string }> {
   const models = [model, ...FALLBACKS.filter((m) => m !== model)];
   let last: Response | null = null;
+  let best: { res: Response; model: string } | null = null; // most useful failure: a real error beats "model not found"
   for (const m of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const res = await fetch(`${BASE}/v1beta/models/${encodeURIComponent(m)}:${action}`, {
@@ -39,6 +41,7 @@ export async function geminiFetch(
       });
       if (res.ok) return { res, model: m };
       last = res;
+      if (res.status !== 404 && !best) best = { res, model: m };
       if (res.status === 400 || res.status === 401 || res.status === 403) return { res, model: m }; // bad key or request: retrying won't help
       if (res.status === 429 && attempt === 0) {
         // Per-minute free-tier limit: Google says how long to wait. Short waits are worth it; daily limits are not.
@@ -52,5 +55,5 @@ export async function geminiFetch(
       if (attempt === 0) await sleep(2000, signal);
     }
   }
-  return { res: last!, model: models[models.length - 1] };
+  return best ?? { res: last!, model: models[models.length - 1] };
 }
