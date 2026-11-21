@@ -137,10 +137,16 @@ export async function transcribeYouTubeWithGemini(
         if (!durationSeconds && !results[i]!.sentences.length) next = Math.max(next, ranges.length);
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
+        // A part that starts after the video ends comes back as "empty or malformed" media: the video is over.
+        if (i > 0 && err instanceof GeminiError && err.status === 400 && /empty|malformed|corrupt|offset|duration/i.test(err.message)) {
+          results[i] = { title: "", sentences: [] };
+          if (!durationSeconds) next = Math.max(next, ranges.length);
+          continue;
+        }
         console.warn(`gemini part ${clock(ranges[i].start)}-${clock(ranges[i].end)} failed:`, (err as Error).message);
         errors.push(err instanceof GeminiError ? err : new GeminiError((err as Error).message, 0));
-        // A bad key or an unreadable video fails every part the same way: stop early.
-        if (err instanceof GeminiError && [400, 401, 403].includes(err.status)) ctl.abort();
+        // A bad key, or a video Gemini can't open at all (first part), fails every part the same way: stop early.
+        if (err instanceof GeminiError && ([401, 403].includes(err.status) || (err.status === 400 && i === 0))) ctl.abort();
       }
     }
   };

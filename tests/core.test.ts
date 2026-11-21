@@ -280,3 +280,25 @@ test("a long YouTube video is read by Gemini in parallel 10-minute parts", async
     process.env.GEMINI_API_KEY = saved;
   }
 });
+
+test("parts past the end of a video of unknown length don't fail the transcript", async () => {
+  const { transcribeYouTubeWithGemini } = await import("../lib/geminiVideo.ts");
+  const realFetch = globalThis.fetch;
+  const saved = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "k";
+  try {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const start = parseInt(JSON.parse(String(init.body)).contents[0].parts[0].videoMetadata.startOffset);
+      await new Promise((r) => setTimeout(r, start >= 1800 ? 1 : 30)); // the past-the-end part answers first
+      if (start >= 1800) return Response.json({ error: { code: 400, message: "Unable to process input: the file or media data is empty, corrupted, or malformed." } }, { status: 400 });
+      const m = start / 60;
+      return Response.json({ candidates: [{ content: { parts: [{ text: `[${m}:10] Hello from ${m}.\n[${m + 2}:00] More from ${m}.` }] } }] });
+    }) as typeof fetch;
+    const t = await transcribeYouTubeWithGemini("abc");
+    assert.equal(t.sentences.length, 6);
+    assert.equal(t.sentences[5].start, 1320);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env.GEMINI_API_KEY = saved;
+  }
+});
