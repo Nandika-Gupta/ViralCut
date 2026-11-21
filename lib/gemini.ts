@@ -41,6 +41,7 @@ export async function geminiFetch(
       });
       if (res.ok) return { res, model: m };
       last = res;
+      console.warn(`gemini ${m} attempt ${attempt + 1}: HTTP ${res.status} ${(await res.clone().text().catch(() => "")).slice(0, 200).replace(/\s+/g, " ")}`);
       if (res.status !== 404 && !best) best = { res, model: m };
       if (res.status === 400 || res.status === 401 || res.status === 403) return { res, model: m }; // bad key or request: retrying won't help
       if (res.status === 429 && attempt === 0) {
@@ -52,7 +53,7 @@ export async function geminiFetch(
         }
       }
       if (!RETRYABLE.has(res.status)) break; // 404 (model gone) or 429 (quota): try the next model
-      if (attempt === 0) await sleep(2000, signal);
+      if (attempt === 0) await sleep(5000, signal); // overloaded: give Google a few seconds before the retry
     }
   }
   return best ?? { res: last!, model: models[models.length - 1] };
