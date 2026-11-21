@@ -128,9 +128,11 @@ export async function transcribeYouTubeWithGemini(
   const results: ({ title: string; sentences: Sentence[] } | null)[] = ranges.map(() => null);
   const errors: GeminiError[] = [];
   let next = 0;
+  const retry: number[] = []; // parts that failed because Gemini was busy get one more try at the end
+  const retried = new Set<number>();
   const worker = async () => {
-    while (next < ranges.length && !ctl.signal.aborted) {
-      const i = next++;
+    while ((next < ranges.length || retry.length) && !ctl.signal.aborted) {
+      const i = next < ranges.length ? next++ : retry.shift()!;
       try {
         results[i] = await readPart(videoId, ranges[i].start, ranges[i].end, i === 0, key, model, ctl.signal);
         // An empty part with no known length means the video has ended: skip the parts after it.
@@ -144,6 +146,12 @@ export async function transcribeYouTubeWithGemini(
           continue;
         }
         console.warn(`gemini part ${clock(ranges[i].start)}-${clock(ranges[i].end)} failed:`, (err as Error).message);
+        if (err instanceof GeminiError && [429, 500, 503].includes(err.status) && !retried.has(i)) {
+          retried.add(i);
+          retry.push(i);
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
         errors.push(err instanceof GeminiError ? err : new GeminiError((err as Error).message, 0));
         // A bad key, or a video Gemini can't open at all (first part), fails every part the same way: stop early.
         if (err instanceof GeminiError && ([401, 403].includes(err.status) || (err.status === 400 && i === 0))) ctl.abort();
@@ -164,6 +172,10 @@ export async function transcribeYouTubeWithGemini(
     throw new Error("Gemini couldn't find speech in this video.");
   }
   const missing = results.filter((r) => r === null).length;
-  if (missing) console.warn(`gemini transcript: ${missing} of ${ranges.length} parts missing (${errors.length} failed)`);
+  if (missing) {
+    console.warn(`gemini transcript: ${missing} of ${ranges.length} parts missing (${errors.length} failed)`);
+    // Don't hand back half a video as if it were the whole thing.
+    if (missing > 0 && durationSeconds) throw errors[0] ?? new GeminiError("Reading this video took too long. Paste the transcript under Clip settings and try again.", 504);
+  }
   return { title: done[0]?.title ?? "", sentences };
 }
