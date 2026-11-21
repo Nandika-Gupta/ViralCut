@@ -502,6 +502,7 @@ export default function Studio() {
       let plan: Plan | null = null;
       if (settings.useAi && config?.ai) {
         setStep(3);
+        let aiProblem = "";
         const result = await askAI<Omit<Plan, "engine">>(
           {
             mode: "pick", transcript: transcriptText(sentences), title, count: settings.count, minLen: min, maxLen: max,
@@ -514,7 +515,16 @@ export default function Studio() {
             setStatus(n ? `Found ${n} potential clip${n > 1 ? "s" : ""}…` : "AI detection: analyzing video content…");
           },
           ctl.signal,
-        );
+        ).catch((err: Error) => {
+          // Gemini busy, out of quota or cut off: still give the clips, picked by the built-in scoring.
+          if (err.name === "AbortError" || err instanceof AccessCodeError) throw err;
+          aiProblem = err.message;
+          return null;
+        });
+        if (aiProblem) {
+          plan = offlinePlan(sentences, loudness, LOUDNESS_HOP, title, { count: settings.count, minLen: min, maxLen: max, platforms: settings.platforms });
+          if (plan.clips.length) plan.notice = `The AI couldn't pick the clips this time (${aiProblem.replace(/\.$/, "")}), so ViralCut's built-in scoring picked them. Click Generate again later for AI picks.`;
+        }
         if (result) {
           plan = cleanPlan(result.data, sentences, settings, result.model || config.model);
           if (plan.clips.length) {
