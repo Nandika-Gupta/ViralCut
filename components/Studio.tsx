@@ -213,7 +213,7 @@ function cleanPlan(raw: Omit<Plan, "engine">, sentences: Sentence[], s: Settings
 
 function transcribeInBrowser(audio: Float32Array, language: string, onStatus: (msg: string, fraction: number | null) => void): Promise<Sentence[]> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker("/workers/whisper.js", { type: "module" });
+    const worker = new Worker("/workers/whisper.js?v=2", { type: "module" });
     worker.onmessage = (e: MessageEvent) => {
       const m = e.data;
       if (m.type === "download") onStatus(`Downloading the speech model (one time) · ${Math.round((m.loaded / m.total) * 100)}%`, m.loaded / m.total);
