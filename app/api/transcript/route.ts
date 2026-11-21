@@ -1,8 +1,8 @@
 import { accessDenied } from "@/lib/access";
 import { geminiKey, transcribeYouTubeWithGemini } from "@/lib/geminiVideo";
-import { fetchYouTubeTranscript, TranscriptError, youtubeId } from "@/lib/youtube";
+import { fetchYouTubeTranscript, TranscriptError, youtubeDuration, youtubeId } from "@/lib/youtube";
 
-// Gemini watching a long video can take a few minutes.
+// Gemini reads a long video in parallel 10-minute parts; that still takes a minute or two.
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   // YouTube often refuses cloud servers. Gemini can read the public video directly instead.
   if (geminiKey()) {
     try {
-      const t = await transcribeYouTubeWithGemini(videoId, req.signal);
+      const duration = await youtubeDuration(videoId).catch(() => 0);
+      const t = await transcribeYouTubeWithGemini(videoId, req.signal, duration);
       const last = t.sentences[t.sentences.length - 1];
       return Response.json({
         videoId, title: t.title, author: "", duration: last.end, language: "auto", sentences: t.sentences, source: "gemini",

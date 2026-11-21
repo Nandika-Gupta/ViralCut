@@ -130,6 +130,19 @@ async function fetchTrack(track: Track): Promise<Word[]> {
   return xmlRes.ok ? wordsFromXml(await xmlRes.text()) : [];
 }
 
+/** The video's length in seconds when YouTube tells this server (it often still does when it hides the captions), else 0. */
+export async function youtubeDuration(videoId: string): Promise<number> {
+  for (const load of [androidPlayer, watchPage]) {
+    try {
+      const seconds = Number((await load(videoId)).videoDetails?.lengthSeconds ?? 0);
+      if (seconds > 0) return seconds;
+    } catch {
+      /* try the next source */
+    }
+  }
+  return 0;
+}
+
 export type YouTubeTranscript = { videoId: string; title: string; author: string; duration: number; language: string; sentences: Sentence[] };
 
 export async function fetchYouTubeTranscript(url: string, lang?: string): Promise<YouTubeTranscript> {

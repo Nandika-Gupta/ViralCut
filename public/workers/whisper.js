@@ -1,5 +1,5 @@
 // Speech recognition in the browser with Whisper (transformers.js). Runs in a module Web Worker.
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.web.min.js";
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js";
 
 env.allowLocalModels = false;
 const WINDOW = 30; // seconds of audio per pass

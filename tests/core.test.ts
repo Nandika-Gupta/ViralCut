@@ -166,13 +166,15 @@ test("Gemini video transcript is parsed into timed sentences", async () => {
   let sent: any;
   try {
     globalThis.fetch = (async (_u: string, init: any) => {
-      sent = JSON.parse(init.body);
-      return Response.json({ candidates: [{ content: { parts: [{ text: "TITLE: My Talk\n[0:00] Why does nobody price right?\n[0:06] Here is the secret.\n[1:02:03] The end." }] } }] });
+      const body = JSON.parse(init.body);
+      if (body.contents[0].parts[0].videoMetadata.startOffset !== "0s") return Response.json({ candidates: [{ content: { parts: [{ text: "NONE" }] } }] });
+      sent = body;
+      return Response.json({ candidates: [{ content: { parts: [{ text: "TITLE: My Talk\n[0:00] Why does nobody price right?\n[0:06] Here is the secret.\n[9:03] The end." }] } }] });
     }) as typeof fetch;
     const t = await transcribeYouTubeWithGemini("RKF42sgl8QQ");
     assert.equal(t.title, "My Talk");
     assert.equal(t.sentences.length, 3);
-    assert.equal(t.sentences[2].start, 3723);
+    assert.equal(t.sentences[2].start, 543);
     assert.equal(sent.contents[0].parts[0].fileData.fileUri, "https://www.youtube.com/watch?v=RKF42sgl8QQ");
   } finally {
     globalThis.fetch = realFetch;
@@ -231,5 +233,50 @@ test("a real Gemini error is reported instead of a retired model's 404", async (
     assert.equal(model, "gemini-flash-latest");
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("Gemini transcript parts land on the video's clock and join without repeats", async () => {
+  const { placePart, joinParts } = await import("../lib/geminiVideo.ts");
+  const mk = (text: string, start: number, end: number) => ({ text, start, end, words: [{ text, start, end }] });
+  // Gemini counted from the part start (0:05 means 10:05): shifted onto the video clock.
+  const relative = placePart([mk("a", 5, 8), mk("b", 200, 210)], 600, 1200);
+  assert.deepEqual(relative.map((s) => s.start), [605, 800]);
+  // Already on the video clock: unchanged; lines outside the part are dropped.
+  const absolute = placePart([mk("c", 1195, 1199), mk("d", 1201, 1205), mk("e", 1300, 1305)], 600, 1200);
+  assert.deepEqual(absolute.map((s) => s.text), ["c", "d"]);
+  const joined = joinParts([[mk("x", 10, 20), mk("same", 598, 603)], [mk("same", 599, 603), mk("y", 610, 615)]]);
+  assert.deepEqual(joined.map((s) => s.text), ["x", "same", "y"]);
+  assert.ok(joined.every((s, i) => i === 0 || joined[i - 1].end <= s.start));
+});
+
+test("a long YouTube video is read by Gemini in parallel 10-minute parts", async () => {
+  const { transcribeYouTubeWithGemini } = await import("../lib/geminiVideo.ts");
+  const realFetch = globalThis.fetch;
+  const saved = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "k";
+  const offsets: string[] = [];
+  let inFlight = 0, maxInFlight = 0;
+  try {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      const start = parseInt(body.contents[0].parts[0].videoMetadata.startOffset);
+      offsets.push(String(start));
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight--;
+      const m = Math.floor(start / 60);
+      const text = `${start === 0 ? "TITLE: Demo\n" : ""}[${m}:05] Part starting at ${m}.\n[${m + 1}:00] Second line of part ${m}.`;
+      return Response.json({ candidates: [{ content: { parts: [{ text }] } }] });
+    }) as typeof fetch;
+    const t = await transcribeYouTubeWithGemini("abc", undefined, 2500);
+    assert.deepEqual(offsets.sort((a, b) => Number(a) - Number(b)), ["0", "600", "1200", "1800", "2400"]);
+    assert.ok(maxInFlight > 1 && maxInFlight <= 4);
+    assert.equal(t.title, "Demo");
+    assert.equal(t.sentences.length, 10);
+    assert.equal(t.sentences[2].start, 605);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env.GEMINI_API_KEY = saved;
   }
 });
