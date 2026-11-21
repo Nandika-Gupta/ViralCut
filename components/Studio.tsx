@@ -422,6 +422,7 @@ export default function Studio() {
         videoBlob = await res.blob();
       }
 
+      let helper: string | null = null;
       if (ytId) {
         source = { kind: "youtube", url: link, videoId: ytId };
         if (pasted.trim()) {
@@ -429,6 +430,31 @@ export default function Studio() {
           transcriptSource = hasTimestamps(pasted) ? "pasted transcript" : "pasted transcript (no timestamps, times estimated)";
         } else {
           setStep(1);
+          // With the ViralCut app running, download the video on this computer and transcribe it here:
+          // no Gemini quota or "busy" errors, and the shorts can be created straight away.
+          helper = await findHelper();
+          if (helper) {
+            try {
+              const dl = await downloadWithHelper(helper, link, (msg, f) => { setStatus(msg); setFraction(f); }, ctl.signal);
+              setFraction(null);
+              const meta = await videoDuration(setSourceVideo(dl.file));
+              const audio = await decodeAudio(dl.file, (m) => setStatus(m));
+              loudness = loudnessCurve(audio);
+              sentences = await transcribeInBrowser(audio, settings.spokenLang, (m, f) => { setStatus(m); setFraction(f); });
+              setFraction(null);
+              videoBlob = dl.file;
+              title = dl.title;
+              duration = meta.duration;
+              transcriptSource = "Whisper (in your browser; video downloaded by the ViralCut app)";
+            } catch (err) {
+              if ((err as Error).name === "AbortError") throw err;
+              console.warn("ViralCut app download failed, reading the link on the server instead", err);
+              sentences = [];
+              setFraction(null);
+            }
+          }
+        }
+        if (!pasted.trim() && sentences.length < 2) {
           setStatus("Reading the video's speech (long videos can take a couple of minutes)…");
           const res = await fetch("/api/transcript", {
             method: "POST",
@@ -436,10 +462,11 @@ export default function Studio() {
             body: JSON.stringify({ url: link }),
             signal: ctl.signal,
           });
-          if (res.status === 504) throw Object.assign(new Error("Reading this video took too long. Paste the transcript under Clip settings and try again."), { askTranscript: true });
+          const appTip = helper ? "" : " Or open the ViralCut app on this computer and click Generate again: it reads the video without Gemini.";
+          if (res.status === 504) throw Object.assign(new Error("Reading this video took too long. Paste the transcript under Clip settings and try again." + appTip), { askTranscript: true });
           const data = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
           if (res.status === 401) throw new AccessCodeError(data.error);
-          if (!res.ok) throw Object.assign(new Error(data.error ?? "Couldn't read this video's captions."), { askTranscript: true });
+          if (!res.ok) throw Object.assign(new Error((data.error ?? "Couldn't read this video's captions.") + appTip), { askTranscript: true });
           sentences = data.sentences;
           title = data.title;
           duration = data.duration;
@@ -513,7 +540,7 @@ export default function Studio() {
       upsertProject(proj);
 
       // 4. render
-      if (source.kind === "file") {
+      if (source.kind === "file" || videoBlob) {
         setStep(4);
         await renderAll(proj, settings, ctl.signal);
       }
